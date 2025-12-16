@@ -20,6 +20,8 @@ class VideoTask(Base):
     duration = Column(Enum('short', 'long', name='duration'), nullable=False)
     voice_name = Column(Enum('echo', 'alloy', 'onyx', 'fable', 'nova', 'shimmer', name='voice_name'), nullable=False)
     language = Column(Enum('english', 'czech', 'danish', 'dutch', 'french', 'german', 'greek', 'hindi', 'indonesian', 'italian', 'chinese', 'japanese', 'norwegian', 'polish', 'portuguese', 'russian', 'spanish', 'swedish', 'turkish', 'ukrainian', name='language'), nullable=False)
+    custom_story = Column(Text, nullable=True)  # User-provided story script
+    custom_title = Column(Text, nullable=True)  # User-provided title
     story_title = Column(Text)
     story_description = Column(Text)
     story_text = Column(Text)

@@ -29,7 +29,9 @@ async def generate_video(
             art_style=request.art_style,
             duration=request.duration,
             language=request.language,
-            voice_name=request.voice_name
+            voice_name=request.voice_name,
+            custom_story=request.custom_story,
+            custom_title=request.custom_title
         )
         
         background_tasks.add_task(
@@ -39,7 +41,9 @@ async def generate_video(
             request.art_style,
             request.duration,
             request.language,
-            request.voice_name
+            request.voice_name,
+            request.custom_story,
+            request.custom_title
         )
         
         return VideoResponse(task_id=task_id, status="queued")

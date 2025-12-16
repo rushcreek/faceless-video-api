@@ -36,7 +36,7 @@ class VideoTaskProcessor:
         self.video_generator = VideoGenerator(self.client)
         self.storage_service = StorageService()
 
-    async def process_video_generation_task(self, task_id: str, story_topic: str, art_style: str, duration: str, language: str, voice_name: str):
+    async def process_video_generation_task(self, task_id: str, story_topic: str, art_style: str, duration: str, language: str, voice_name: str, custom_story: str = None, custom_title: str = None):
         task = await VideoTask.get(task_id)
         total_steps = 6  # Total number of main steps in the process
         completed_steps = 0
@@ -44,11 +44,22 @@ class VideoTaskProcessor:
         try:
             await task.update(task_id=task_id, status="processing", progress=0)
 
-            # Step 1: Generate story and title
+            # Step 1: Generate or use custom story and title
             story_type = self.map_topic_to_story_type(story_topic)
-            title, description, story = await self.story_generator.generate_story_and_title(story_type, language, duration)
-            if not title or not story:
-                raise ValueError("Failed to generate story and title")
+            
+            if custom_story:
+                # Use the provided custom story
+                story = custom_story
+                title = custom_title if custom_title else f"Custom {story_type.title()} Story"
+                description = f"A custom {story_type} story #facelessvideos.app"
+                logger.info(f"Using custom story for task {task_id}")
+            else:
+                # Generate story using OpenAI
+                title, description, story = await self.story_generator.generate_story_and_title(story_type, language, duration)
+                if not title or not story:
+                    raise ValueError("Failed to generate story and title")
+                logger.info(f"Generated story using OpenAI for task {task_id}")
+            
             completed_steps += 1
             await task.update(task_id=task_id, progress=round(completed_steps/total_steps, 1))
 

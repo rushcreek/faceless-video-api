@@ -81,10 +81,18 @@ class VideoGenerator:
                 logger.error("No valid clips generated")
                 return None
 
-            final_clip = concatenate_videoclips(clips)
+            final_clip = concatenate_videoclips(clips, method="compose")
             
             # Use a separate thread for video writing to avoid blocking the event loop
-            await asyncio.to_thread(final_clip.write_videofile, video_path, fps=24)
+            await asyncio.to_thread(
+                final_clip.write_videofile,
+                video_path,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                temp_audiofile='temp-audio.m4a',
+                remove_temp=True
+            )
 
             subtitle_video_path = video_path.replace('.mp4', '_subtitle.mp4')
             await self.add_captions(video_path, subtitle_video_path)

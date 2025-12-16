@@ -17,6 +17,8 @@ class VideoRequest(BaseModel):
     duration: Duration
     language: Language
     voice_name: VoiceName
+    custom_story: Optional[str] = None  # Provide your own story script (optional)
+    custom_title: Optional[str] = None  # Provide your own title (optional)
 
     @field_validator('story_topic', 'art_style', 'duration', 'language', 'voice_name', mode='before')
     def to_lowercase(cls, v):
