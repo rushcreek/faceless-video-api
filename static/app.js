@@ -305,7 +305,16 @@ async function pollTaskStatus() {
         
         if (response.ok) {
             const task = await response.json();
+            
+            // Update main tab
             updateTaskDisplay(task);
+            
+            // Update Task Status tab if it's being viewed
+            const statusTab = document.getElementById('status-tab');
+            const statusTaskId = document.getElementById('status_task_id').value;
+            if (statusTab && statusTab.classList.contains('active') && statusTaskId === currentTaskId) {
+                displayFullTaskStatus(task);
+            }
             
             // Stop polling if task is completed or failed
             if (task.status === 'completed' || task.status === 'failed') {
