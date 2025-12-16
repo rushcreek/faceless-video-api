@@ -59,8 +59,16 @@ document.getElementById('video-form').addEventListener('submit', async (e) => {
     if (!token) return;
     
     const formData = new FormData(e.target);
+    const customStory = formData.get('custom_story');
+    
+    // Validate custom story is required and has minimum length
+    if (!customStory || customStory.trim().length < 100) {
+        alert('Please provide a story script of at least 100 characters');
+        return;
+    }
+    
     const data = {
-        story_topic: formData.get('story_topic'),
+        custom_story: customStory.trim(),
         art_style: formData.get('art_style'),
         duration: formData.get('duration'),
         voice_name: formData.get('voice_name'),
@@ -68,11 +76,14 @@ document.getElementById('video-form').addEventListener('submit', async (e) => {
     };
     
     // Add optional fields if provided
-    if (formData.get('custom_title')) {
-        data.custom_title = formData.get('custom_title');
+    const customTitle = formData.get('custom_title');
+    if (customTitle && customTitle.trim()) {
+        data.custom_title = customTitle.trim();
     }
-    if (formData.get('custom_story')) {
-        data.custom_story = formData.get('custom_story');
+    
+    const storyStyleDescriptor = formData.get('story_style_descriptor');
+    if (storyStyleDescriptor && storyStyleDescriptor.trim()) {
+        data.story_style_descriptor = storyStyleDescriptor.trim();
     }
     
     try {
@@ -175,6 +186,14 @@ function updateTaskDisplay(task) {
     const statusBadge = document.getElementById('task-status');
     statusBadge.textContent = task.status;
     statusBadge.className = `status-badge ${task.status}`;
+    
+    // Show download link if video is completed
+    const videoLink = document.getElementById('video-link');
+    if (task.status === 'completed' && task.url) {
+        videoLink.innerHTML = `- <a href="${task.url}" target="_blank" style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
+    } else if (task.status === 'failed') {
+        videoLink.innerHTML = '';
+    }
 }
 
 // Display full task status
@@ -187,7 +206,14 @@ function displayFullTaskStatus(task) {
             <p><strong>Status:</strong> <span class="status-badge ${task.status}">${task.status}</span></p>
             <p><strong>Task ID:</strong> ${task.task_id}</p>
             <p><strong>Created:</strong> ${new Date(task.created_at).toLocaleString()}</p>
-            
+    `;
+    
+    // Add download link if video is completed
+    if (task.status === 'completed' && task.url) {
+        html += `<p><strong>Video:</strong> <a href="${task.url}" target="_blank" style="color: #4CAF50; font-weight: bold;">Download Video</a></p>`;
+    }
+    
+    html += `
             <div class="progress-bar">
                 <div class="progress-fill" style="width: ${(task.progress * 100).toFixed(0)}%">
                     ${(task.progress * 100).toFixed(0)}%

@@ -8,7 +8,7 @@ from app.services.image_generator import ImageGenerator
 from app.services.video_generator import VideoGenerator 
 from app.utils.helpers import create_resource_dir
 from app.models.video_task import VideoTask
-from app.constants.story_types import STORY_TYPES
+from app.constants.story_types import STORY_STYLE_DESCRIPTORS
 from app.services.image_api import fal_flux_api, replicate_flux_api
 from app.core.logging import logger
 from app.services.storage import StorageService
@@ -36,7 +36,7 @@ class VideoTaskProcessor:
         self.video_generator = VideoGenerator(self.client)
         self.storage_service = StorageService()
 
-    async def process_video_generation_task(self, task_id: str, story_topic: str, art_style: str, duration: str, language: str, voice_name: str, custom_story: str = None, custom_title: str = None):
+    async def process_video_generation_task(self, task_id: str, art_style: str, duration: str, language: str, voice_name: str, custom_story: str, custom_title: str = None, story_style_descriptor: str = None):
         task = await VideoTask.get(task_id)
         total_steps = 6  # Total number of main steps in the process
         completed_steps = 0
@@ -44,41 +44,51 @@ class VideoTaskProcessor:
         try:
             await task.update(task_id=task_id, status="processing", progress=0)
 
-            # Step 1: Generate or use custom story and title
-            story_type = self.map_topic_to_story_type(story_topic)
+            # Step 1: Use custom story (now required)
+            story = custom_story
+            title = custom_title if custom_title else "Custom Story"
+            description = f"A custom video story #facelessvideos.app"
             
-            if custom_story:
-                # Use the provided custom story
-                story = custom_story
-                title = custom_title if custom_title else f"Custom {story_type.title()} Story"
-                description = f"A custom {story_type} story #facelessvideos.app"
-                logger.info(f"Using custom story for task {task_id}")
-            else:
-                # Generate story using OpenAI
-                title, description, story = await self.story_generator.generate_story_and_title(story_type, language, duration)
-                if not title or not story:
-                    raise ValueError("Failed to generate story and title")
-                logger.info(f"Generated story using OpenAI for task {task_id}")
+            # Add style descriptor to description if provided
+            if story_style_descriptor:
+                description = f"A {story_style_descriptor} video story #facelessvideos.app"
+            
+            logger.info(f"Processing task {task_id} with story_style_descriptor: {story_style_descriptor}")
             
             completed_steps += 1
             await task.update(task_id=task_id, progress=round(completed_steps/total_steps, 1))
 
             # Step 2: Create resource directory and generate characters
-            story_dir = create_resource_dir(settings.STORY_DIR, story_type, title)
-            characters = await self.story_generator.generate_characters(story) if story_type not in ['life pro tips', 'fun facts'] else []
+            story_dir_name = story_style_descriptor if story_style_descriptor else "custom"
+            story_dir = create_resource_dir(settings.STORY_DIR, story_dir_name, title)
+            
+            # Only generate characters for narrative stories
+            characters = []
+            if story_style_descriptor in ['dramatic', 'mysterious', 'epic', 'intimate']:
+                characters = await self.story_generator.generate_characters(story)
+            
             completed_steps += 1
             await task.update(task_id=task_id, progress=round(completed_steps/total_steps, 1))
 
             # Step 3: Generate storyboard
-            storyboard_project = await self.story_generator.generate_storyboard(story_type, title, story, [c["name"] for c in characters])
+            # Combine style descriptor with story for better image prompts
+            enhanced_story = story
+            if story_style_descriptor:
+                enhanced_story = f"[{story_style_descriptor.upper()} MOOD] {story}"
+            
+            storyboard_project = await self.story_generator.generate_storyboard(story_dir_name, title, enhanced_story, [c["name"] for c in characters])
             if not storyboard_project.get("storyboards"):
                 raise ValueError("Failed to generate storyboard")
             storyboard_project["characters"] = characters
             completed_steps += 1
             await task.update(task_id=task_id, progress=round(completed_steps/total_steps, 1))
 
-            # Step 4: Generate images
-            image_urls = await self.image_generator.generate_images(task_id, storyboard_project, art_style)
+            # Step 4: Generate images with combined art style + descriptor
+            combined_art_style = art_style
+            if story_style_descriptor:
+                combined_art_style = f"{story_style_descriptor} {art_style}"
+            
+            image_urls = await self.image_generator.generate_images(task_id, storyboard_project, combined_art_style)
             if not image_urls:
                 raise ValueError("Failed to generate images")
             completed_steps += 1
@@ -138,14 +148,3 @@ class VideoTaskProcessor:
             #     os.remove(video_path)
             # if 'story_dir' in locals() and os.path.exists(story_dir):
             #     shutil.rmtree(story_dir)
-
-    def map_topic_to_story_type(self, topic: str) -> str:
-        topic_lower = topic.lower()
-        
-        for story_type in STORY_TYPES:
-            if topic_lower == story_type.lower():
-                return story_type
-            elif topic_lower in story_type.lower():
-                return story_type
-        
-        return None

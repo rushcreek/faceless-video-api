@@ -15,7 +15,6 @@
 
         <div class="tabs">
             <button class="tab-button active" onclick="switchTab('video')">Video Generation</button>
-            <button class="tab-button" onclick="switchTab('admin')">Admin Settings</button>
             <button class="tab-button" onclick="switchTab('status')">Task Status</button>
         </div>
 
@@ -23,46 +22,74 @@
         <div id="video-tab" class="tab-content active">
             <h2>Generate Video</h2>
             <form id="video-form">
+                <div class="form-group full-width">
+                    <label for="custom_story">Story Script (Required) *</label>
+                    <textarea id="custom_story" name="custom_story" rows="8" required placeholder="Enter your story script here (minimum 100 characters)..."></textarea>
+                    <small>Provide the complete story script for your video</small>
+                </div>
+
+                <div class="form-group full-width">
+                    <label for="custom_title">Story Title (Optional)</label>
+                    <input type="text" id="custom_title" name="custom_title" placeholder="Leave blank for default title">
+                </div>
+
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="story_topic">Story Topic:</label>
-                        <select id="story_topic" name="story_topic" required>
-                            <option value="scary">Scary Stories</option>
-                            <option value="mystery">Mystery</option>
-                            <option value="bedtime">Bedtime Stories</option>
-                            <option value="interesting history">Interesting History</option>
-                            <option value="urban legends">Urban Legends</option>
-                            <option value="motivational">Motivational</option>
-                            <option value="fun facts">Fun Facts</option>
-                            <option value="long form jokes">Long Form Jokes</option>
-                            <option value="life pro tips">Life Pro Tips</option>
-                            <option value="philosophy">Philosophy</option>
-                            <option value="love">Love Stories</option>
-                            <option value="custom topic">Custom Topic</option>
+                        <label for="story_style_descriptor">Visual Tone (Optional)</label>
+                        <select id="story_style_descriptor" name="story_style_descriptor">
+                            <option value="">None</option>
+                            <option value="dark">Dark</option>
+                            <option value="mysterious">Mysterious</option>
+                            <option value="uplifting">Uplifting</option>
+                            <option value="dramatic">Dramatic</option>
+                            <option value="whimsical">Whimsical</option>
+                            <option value="melancholic">Melancholic</option>
+                            <option value="suspenseful">Suspenseful</option>
+                            <option value="inspirational">Inspirational</option>
+                            <option value="nostalgic">Nostalgic</option>
+                            <option value="surreal">Surreal</option>
+                            <option value="epic">Epic</option>
+                            <option value="intimate">Intimate</option>
+                            <option value="energetic">Energetic</option>
+                            <option value="calm">Calm</option>
+                            <option value="chaotic">Chaotic</option>
                         </select>
+                        <small>Modifies the visual mood of images</small>
                     </div>
 
                     <div class="form-group">
-                        <label for="art_style">Art Style:</label>
+                        <label for="art_style">Art Style *</label>
                         <select id="art_style" name="art_style" required>
-                            <option value="cinematic">Cinematic</option>
+                            <option value="cinematic" selected>Cinematic</option>
                             <option value="photorealistic">Photorealistic</option>
                             <option value="anime">Anime</option>
                             <option value="comic-book">Comic Book</option>
                             <option value="pixar-art">Pixar Art</option>
+                            <option value="oil-painting">Oil Painting</option>
+                            <option value="watercolor">Watercolor</option>
+                            <option value="sketch">Sketch</option>
+                            <option value="noir">Film Noir</option>
+                            <option value="cyberpunk">Cyberpunk</option>
+                            <option value="fantasy">Fantasy</option>
+                            <option value="minimalist">Minimalist</option>
+                            <option value="impressionist">Impressionist</option>
+                            <option value="pop-art">Pop Art</option>
+                            <option value="steampunk">Steampunk</option>
                         </select>
                     </div>
 
                     <div class="form-group">
-                        <label for="duration">Duration:</label>
+                        <label for="duration">Duration *</label>
                         <select id="duration" name="duration" required>
                             <option value="short">Short (700-800 chars)</option>
-                            <option value="long">Long (900-1000 chars)</option>
+                            <option value="long">Long (900-1500 chars)</option>
                         </select>
                     </div>
 
+                    </div>
+
                     <div class="form-group">
-                        <label for="voice_name">Voice:</label>
+                        <label for="voice_name">Voice *</label>
                         <select id="voice_name" name="voice_name" required>
                             <option value="female-narrator">Female Narrator</option>
                             <option value="male-narrator">Male Narrator</option>
@@ -75,7 +102,7 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="language">Language:</label>
+                        <label for="language">Language *</label>
                         <select id="language" name="language" required>
                             <option value="english">English</option>
                             <option value="spanish">Spanish</option>
@@ -101,16 +128,6 @@
                     </div>
                 </div>
 
-                <div class="form-group full-width">
-                    <label for="custom_title">Custom Title (Optional):</label>
-                    <input type="text" id="custom_title" name="custom_title" placeholder="Leave blank to auto-generate">
-                </div>
-
-                <div class="form-group full-width">
-                    <label for="custom_story">Custom Story (Optional):</label>
-                    <textarea id="custom_story" name="custom_story" rows="8" placeholder="Leave blank to auto-generate a story based on the topic above..."></textarea>
-                </div>
-
                 <div class="button-group">
                     <button type="submit" class="btn btn-primary">🎬 Generate Video</button>
                     <button type="button" class="btn btn-secondary" onclick="clearForm()">Clear Form</button>
@@ -120,116 +137,9 @@
             <div id="video-result" class="result-box" style="display: none;">
                 <h3>Generation Started!</h3>
                 <p>Task ID: <strong id="task-id"></strong></p>
-                <p>Status: <span id="task-status" class="status-badge">queued</span></p>
+                <p>Status: <span id="task-status" class="status-badge">queued</span> <span id="video-link"></span></p>
                 <button class="btn btn-secondary" onclick="checkTaskStatus()">Check Status</button>
             </div>
-        </div>
-
-        <!-- Admin Settings Tab -->
-        <div id="admin-tab" class="tab-content">
-            <h2>Admin Configuration</h2>
-            <p class="warning">⚠️ Changes here will update your .env file. Be careful!</p>
-            
-            <form id="admin-form">
-                <div class="section">
-                    <h3>Cartesia TTS Configuration</h3>
-                    <div class="form-group">
-                        <label for="cartesia_api_key">Cartesia API Key:</label>
-                        <input type="password" id="cartesia_api_key" name="cartesia_api_key" placeholder="sk_car_...">
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>OpenAI Configuration</h3>
-                    <div class="form-group">
-                        <label for="openai_base_url">OpenAI Base URL:</label>
-                        <input type="text" id="openai_base_url" name="openai_base_url" placeholder="https://api.openai.com/v1">
-                    </div>
-                    <div class="form-group">
-                        <label for="openai_api_key">OpenAI API Key:</label>
-                        <input type="password" id="openai_api_key" name="openai_api_key" placeholder="sk-...">
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>Azure OpenAI (Optional)</h3>
-                    <div class="form-group">
-                        <label for="azure_openai_endpoint">Azure OpenAI Endpoint:</label>
-                        <input type="text" id="azure_openai_endpoint" name="azure_openai_endpoint" placeholder="https://your-resource.openai.azure.com/">
-                    </div>
-                    <div class="form-group">
-                        <label for="azure_openai_api_key">Azure OpenAI API Key:</label>
-                        <input type="password" id="azure_openai_api_key" name="azure_openai_api_key">
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>Image Generation (FAL)</h3>
-                    <div class="form-group">
-                        <label for="fal_key">FAL API Key:</label>
-                        <input type="password" id="fal_key" name="fal_key" placeholder="Your FAL API key">
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>Database Configuration</h3>
-                    <div class="form-group">
-                        <label for="database_url">Database URL:</label>
-                        <input type="text" id="database_url" name="database_url" placeholder="postgresql://user:pass@localhost:5432/db_name">
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>Authentication</h3>
-                    <div class="form-group">
-                        <label for="secret_key">Secret Key:</label>
-                        <input type="password" id="secret_key" name="secret_key" placeholder="Your secret key">
-                    </div>
-                    <div class="form-group">
-                        <label for="admin_username">Admin Username:</label>
-                        <input type="text" id="admin_username" name="admin_username" placeholder="admin">
-                    </div>
-                    <div class="form-group">
-                        <label for="admin_email">Admin Email:</label>
-                        <input type="email" id="admin_email" name="admin_email" placeholder="admin@example.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="admin_password">Admin Password:</label>
-                        <input type="password" id="admin_password" name="admin_password">
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>Cloudflare R2 Storage</h3>
-                    <div class="form-group">
-                        <label for="r2_bucket_name">R2 Bucket Name:</label>
-                        <input type="text" id="r2_bucket_name" name="r2_bucket_name" placeholder="my-bucket">
-                    </div>
-                    <div class="form-group">
-                        <label for="r2_endpoint">R2 Endpoint (Private):</label>
-                        <input type="text" id="r2_endpoint" name="r2_endpoint" placeholder="https://<account-id>.r2.cloudflarestorage.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="r2_public_endpoint">R2 Public Endpoint:</label>
-                        <input type="text" id="r2_public_endpoint" name="r2_public_endpoint" placeholder="https://<bucket>.<account-id>.r2.dev">
-                    </div>
-                    <div class="form-group">
-                        <label for="r2_access_key_id">R2 Access Key ID:</label>
-                        <input type="text" id="r2_access_key_id" name="r2_access_key_id">
-                    </div>
-                    <div class="form-group">
-                        <label for="r2_secret_access_key">R2 Secret Access Key:</label>
-                        <input type="password" id="r2_secret_access_key" name="r2_secret_access_key">
-                    </div>
-                </div>
-
-                <div class="button-group">
-                    <button type="button" class="btn btn-primary" onclick="saveAdminSettings()">💾 Save Settings</button>
-                    <button type="button" class="btn btn-secondary" onclick="loadAdminSettings()">🔄 Reload from .env</button>
-                </div>
-            </form>
-
-            <div id="admin-result" class="result-box" style="display: none;"></div>
         </div>
 
         <!-- Task Status Tab -->

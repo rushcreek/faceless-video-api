@@ -1,26 +1,44 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 from .image import ImageStatus
-from app.constants.story_types import STORY_TYPES
+from app.constants.story_types import STORY_STYLE_DESCRIPTORS
 
-ArtStyle = Literal['photorealistic', 'cinematic', 'anime', 'comic-book', 'pixar-art']
+# Expanded art styles
+ArtStyle = Literal[
+    'photorealistic', 
+    'cinematic', 
+    'anime', 
+    'comic-book', 
+    'pixar-art',
+    'oil-painting',
+    'watercolor',
+    'sketch',
+    'noir',
+    'cyberpunk',
+    'fantasy',
+    'minimalist',
+    'impressionist',
+    'pop-art',
+    'steampunk'
+]
+
 Duration = Literal['short', 'long']
 Language = Literal['english', 'czech', 'danish', 'dutch', 'french', 'german', 'greek', 'hindi', 'indonesian', 'italian', 'chinese', 'japanese', 'norwegian', 'polish', 'portuguese', 'russian', 'spanish', 'swedish', 'turkish', 'ukrainian']
 VoiceName = Literal['barbershop-man', 'calm-lady', 'female-conversational', 'female-narrator', 'male-conversational', 'male-narrator', 'friendly-sidekick']
 Status = Literal['queued', 'processing', 'completed', 'failed']
-StoryTopic = Literal[tuple(STORY_TYPES)]  # Create Literal type from STORY_TYPES
+StoryStyleDescriptor = Literal[tuple(STORY_STYLE_DESCRIPTORS)]  # Create Literal type from STORY_STYLE_DESCRIPTORS
 
 class VideoRequest(BaseModel):
-    story_topic: StoryTopic
+    custom_story: str = Field(..., min_length=100, description="The story script (required, minimum 100 characters)")
+    custom_title: Optional[str] = Field(None, description="Optional custom title")
+    story_style_descriptor: Optional[StoryStyleDescriptor] = Field(None, description="Optional visual tone modifier")
     art_style: ArtStyle
     duration: Duration
     language: Language
     voice_name: VoiceName
-    custom_story: Optional[str] = None  # Provide your own story script (optional)
-    custom_title: Optional[str] = None  # Provide your own title (optional)
 
-    @field_validator('story_topic', 'art_style', 'duration', 'language', 'voice_name', mode='before')
+    @field_validator('story_style_descriptor', 'art_style', 'duration', 'language', 'voice_name', mode='before')
     def to_lowercase(cls, v):
         return v.lower() if isinstance(v, str) else v
 

@@ -1,16 +1,20 @@
 from typing import List
 
-STORY_TYPES: List[str] = [
-    "scary",
-    "mystery",
-    "bedtime",
-    "interesting history",
-    "urban legends",
-    "motivational",
-    "fun facts",
-    "long form jokes",
-    "life pro tips",
-    "philosophy",
-    "love",
-    "custom topic",
+# Story style descriptors that modify the visual tone and mood of the video
+STORY_STYLE_DESCRIPTORS: List[str] = [
+    "dark",
+    "mysterious", 
+    "uplifting",
+    "dramatic",
+    "whimsical",
+    "melancholic",
+    "suspenseful",
+    "inspirational",
+    "nostalgic",
+    "surreal",
+    "epic",
+    "intimate",
+    "energetic",
+    "calm",
+    "chaotic"
 ]

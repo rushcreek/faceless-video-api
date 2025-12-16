@@ -6,7 +6,7 @@ from typing import Optional, List
 from sqlalchemy.exc import SQLAlchemyError
 from app.db.base_class import Base  # Import Base from base_class, not from base
 from app.core.logging import logger
-from app.constants.story_types import STORY_TYPES
+from app.constants.story_types import STORY_STYLE_DESCRIPTORS
 
 
 
@@ -15,13 +15,13 @@ class VideoTask(Base):
 
     id = Column(String, primary_key=True, index=True)
     url = Column(String, nullable=True)
-    story_topic = Column(Enum(*STORY_TYPES, name='story_topic'), nullable=False)
-    art_style = Column(Enum('photorealistic', 'cinematic', 'anime', 'comic-book', 'pixar-art', name='art_style'), nullable=False)
+    story_style_descriptor = Column(Enum(*STORY_STYLE_DESCRIPTORS, name='story_style_descriptor'), nullable=True)
+    art_style = Column(Enum('photorealistic', 'cinematic', 'anime', 'comic-book', 'pixar-art', 'oil-painting', 'watercolor', 'sketch', 'noir', 'cyberpunk', 'fantasy', 'minimalist', 'impressionist', 'pop-art', 'steampunk', name='art_style'), nullable=False)
     duration = Column(Enum('short', 'long', name='duration'), nullable=False)
     voice_name = Column(Enum('barbershop-man', 'calm-lady', 'female-conversational', 'female-narrator', 'male-conversational', 'male-narrator', 'friendly-sidekick', name='voice_name'), nullable=False)
     language = Column(Enum('english', 'czech', 'danish', 'dutch', 'french', 'german', 'greek', 'hindi', 'indonesian', 'italian', 'chinese', 'japanese', 'norwegian', 'polish', 'portuguese', 'russian', 'spanish', 'swedish', 'turkish', 'ukrainian', name='language'), nullable=False)
-    custom_story = Column(Text, nullable=True)  # User-provided story script
-    custom_title = Column(Text, nullable=True)  # User-provided title
+    custom_story = Column(Text, nullable=False)  # Required story script
+    custom_title = Column(Text, nullable=True)  # Optional title
     story_title = Column(Text)
     story_description = Column(Text)
     story_text = Column(Text)
