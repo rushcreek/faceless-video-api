@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     REPLICATE_API_TOKEN: str | None = None
     SECRET_KEY: str | None = None
     FAL_KEY: str | None = None
+    CARTESIA_API_KEY: str | None = None
 
     # Admin user settings
     ADMIN_USERNAME: str | None = None

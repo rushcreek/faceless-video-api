@@ -64,12 +64,13 @@
                     <div class="form-group">
                         <label for="voice_name">Voice:</label>
                         <select id="voice_name" name="voice_name" required>
-                            <option value="nova">Nova (Female)</option>
-                            <option value="alloy">Alloy (Neutral)</option>
-                            <option value="echo">Echo (Male)</option>
-                            <option value="fable">Fable (Male)</option>
-                            <option value="onyx">Onyx (Male)</option>
-                            <option value="shimmer">Shimmer (Female)</option>
+                            <option value="female-narrator">Female Narrator</option>
+                            <option value="male-narrator">Male Narrator</option>
+                            <option value="female-conversational">Female Conversational</option>
+                            <option value="male-conversational">Male Conversational</option>
+                            <option value="calm-lady">Calm Lady</option>
+                            <option value="barbershop-man">Barbershop Man</option>
+                            <option value="friendly-sidekick">Friendly Sidekick</option>
                         </select>
                     </div>
 
@@ -130,6 +131,14 @@
             <p class="warning">⚠️ Changes here will update your .env file. Be careful!</p>
             
             <form id="admin-form">
+                <div class="section">
+                    <h3>Cartesia TTS Configuration</h3>
+                    <div class="form-group">
+                        <label for="cartesia_api_key">Cartesia API Key:</label>
+                        <input type="password" id="cartesia_api_key" name="cartesia_api_key" placeholder="sk_car_...">
+                    </div>
+                </div>
+
                 <div class="section">
                     <h3>OpenAI Configuration</h3>
                     <div class="form-group">

@@ -13,8 +13,9 @@ from app.core.logging import logger
 from app.utils.image_utils import download_image
 
 class VideoGenerator:
-    def __init__(self, client):
-        self.audio_generator = AudioGenerator(client)
+    def __init__(self, client=None):
+        # client parameter kept for backward compatibility but not used with Cartesia
+        self.audio_generator = AudioGenerator()
         self.font_path = os.path.join(settings.BASE_DIR, "resources/fonts")
 
     async def add_captions(self, output_file, output_file_subtitle):

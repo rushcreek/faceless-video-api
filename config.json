@@ -5,7 +5,7 @@
     },
     "story_limit_long": {
       "char_limit_min": 900,
-      "char_limit_max": 1000 
+      "char_limit_max": 1500 
     },
     "storyboard": {
       "max_scenes": 14

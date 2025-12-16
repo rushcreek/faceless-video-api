@@ -7,7 +7,7 @@ from app.constants.story_types import STORY_TYPES
 ArtStyle = Literal['photorealistic', 'cinematic', 'anime', 'comic-book', 'pixar-art']
 Duration = Literal['short', 'long']
 Language = Literal['english', 'czech', 'danish', 'dutch', 'french', 'german', 'greek', 'hindi', 'indonesian', 'italian', 'chinese', 'japanese', 'norwegian', 'polish', 'portuguese', 'russian', 'spanish', 'swedish', 'turkish', 'ukrainian']
-VoiceName = Literal['echo', 'alloy', 'onyx', 'fable', 'nova', 'shimmer']
+VoiceName = Literal['barbershop-man', 'calm-lady', 'female-conversational', 'female-narrator', 'male-conversational', 'male-narrator', 'friendly-sidekick']
 Status = Literal['queued', 'processing', 'completed', 'failed']
 StoryTopic = Literal[tuple(STORY_TYPES)]  # Create Literal type from STORY_TYPES
 

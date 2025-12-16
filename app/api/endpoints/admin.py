@@ -7,6 +7,7 @@ from pathlib import Path
 router = APIRouter()
 
 class EnvSettings(BaseModel):
+    CARTESIA_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     AZURE_OPENAI_ENDPOINT: Optional[str] = None
@@ -73,7 +74,11 @@ async def update_env_settings(settings: Dict[str, str]) -> Dict[str, str]:
     
     # Write back to .env
     with open(env_file, 'w') as f:
-        f.write("# OpenAI Configuration (Default)\n")
+        f.write("#Cartesian Environment Variables\n")
+        if "CARTESIA_API_KEY" in existing_lines:
+            f.write(existing_lines["CARTESIA_API_KEY"] + "\n")
+        
+        f.write("\n# OpenAI Configuration (Default)\n")
         if "OPENAI_BASE_URL" in existing_lines:
             f.write(existing_lines["OPENAI_BASE_URL"] + "\n")
         if "OPENAI_API_KEY" in existing_lines:
