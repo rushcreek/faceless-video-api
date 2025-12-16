@@ -19,35 +19,60 @@ async function loadConfigOptions() {
 
 // Populate dropdowns with config data
 function populateDropdowns() {
-    if (!configOptions) return;
+    if (!configOptions) {
+        console.error('No config options available');
+        return;
+    }
+
+    console.log('Populating dropdowns with config:', configOptions);
 
     // Populate voices
     const voiceSelect = document.getElementById('voice_name');
-    voiceSelect.innerHTML = configOptions.voices.map(v => 
-        `<option value="${v.id}">${v.name}</option>`
-    ).join('');
+    if (voiceSelect) {
+        voiceSelect.innerHTML = configOptions.voices.map(v => 
+            `<option value="${v.id}">${v.name}</option>`
+        ).join('');
+        console.log('Populated voices:', voiceSelect.options.length);
+    } else {
+        console.error('voice_name select not found');
+    }
 
     // Populate languages
     const languageSelect = document.getElementById('language');
-    languageSelect.innerHTML = configOptions.languages.map(lang => 
-        `<option value="${lang}">${lang.charAt(0).toUpperCase() + lang.slice(1)}</option>`
-    ).join('');
+    if (languageSelect) {
+        languageSelect.innerHTML = configOptions.languages.map(lang => 
+            `<option value="${lang}">${lang.charAt(0).toUpperCase() + lang.slice(1)}</option>`
+        ).join('');
+        console.log('Populated languages:', languageSelect.options.length);
+    } else {
+        console.error('language select not found');
+    }
 
     // Populate art styles
     const artStyleSelect = document.getElementById('art_style');
-    artStyleSelect.innerHTML = configOptions.art_styles.map(style => {
-        const displayName = style.split('-').map(word => 
-            word.charAt(0).toUpperCase() + word.slice(1)
-        ).join(' ');
-        return `<option value="${style}"${style === 'cinematic' ? ' selected' : ''}>${displayName}</option>`;
-    }).join('');
+    if (artStyleSelect) {
+        artStyleSelect.innerHTML = configOptions.art_styles.map(style => {
+            const displayName = style.split('-').map(word => 
+                word.charAt(0).toUpperCase() + word.slice(1)
+            ).join(' ');
+            return `<option value="${style}"${style === 'cinematic' ? ' selected' : ''}>${displayName}</option>`;
+        }).join('');
+        console.log('Populated art styles:', artStyleSelect.options.length);
+    } else {
+        console.error('art_style select not found');
+    }
 
     // Populate story style descriptors
     const styleDescriptorSelect = document.getElementById('story_style_descriptor');
-    styleDescriptorSelect.innerHTML = '<option value="">None</option>' + 
-        configOptions.story_style_descriptors.map(desc => 
-            `<option value="${desc}">${desc.charAt(0).toUpperCase() + desc.slice(1)}</option>`
-        ).join('');
+    if (styleDescriptorSelect) {
+        styleDescriptorSelect.innerHTML = '<option value="">None</option>' + 
+            configOptions.story_style_descriptors.map(desc => 
+                `<option value="${desc}">${desc.charAt(0).toUpperCase() + desc.slice(1)}</option>`
+            ).join('');
+        console.log('Populated story style descriptors:', styleDescriptorSelect.options.length);
+    } else {
+        console.error('story_style_descriptor select not found');
+    }
 }
 
 // Initialize on page load
@@ -239,7 +264,7 @@ function updateTaskDisplay(task) {
     // Show download link if video is completed
     const videoLink = document.getElementById('video-link');
     if (task.status === 'completed' && task.url) {
-        videoLink.innerHTML = `- <a href="${task.url}" target="_blank" style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
+        videoLink.innerHTML = `- <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
     } else if (task.status === 'failed') {
         videoLink.innerHTML = '';
     }
@@ -259,7 +284,7 @@ function displayFullTaskStatus(task) {
     
     // Add download link if video is completed
     if (task.status === 'completed' && task.url) {
-        html += `<p><strong>Video:</strong> <a href="${task.url}" target="_blank" style="color: #4CAF50; font-weight: bold;">Download Video</a></p>`;
+        html += `<p><strong>Video:</strong> <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a></p>`;
     }
     
     html += `
