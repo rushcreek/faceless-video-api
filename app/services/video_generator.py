@@ -109,10 +109,8 @@ class VideoGenerator:
             highlight_current_word=True,
             word_highlight_color="yellow",
             line_count=3,  # Show 3 lines to display more words as phrases
-            padding=480,
-            position="bottom",
+\            position="center",
             use_local_whisper=False,
-            horizontal_padding=50,  # Reduce horizontal padding to allow more words per line
         )
 
     async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue'):
