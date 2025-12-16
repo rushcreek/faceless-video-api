@@ -108,10 +108,11 @@ class VideoGenerator:
             shadow_blur=0.1,
             highlight_current_word=True,
             word_highlight_color="yellow",
-            line_count=2,
+            line_count=3,  # Show 3 lines to display more words as phrases
             padding=480,
             position="bottom",
             use_local_whisper=False,
+            horizontal_padding=50,  # Reduce horizontal padding to allow more words per line
         )
 
     async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue'):
@@ -214,6 +215,10 @@ class VideoGenerator:
             if closing_screen:
                 clips.append(closing_screen)
                 logger.info("Added closing screen with logos to video")
+            
+            # Add audio fadeout to last scene clip to prevent audio artifacts
+            if len(clips) > 1 and clips[-2].audio is not None:
+                clips[-2] = clips[-2].audio_fadeout(0.3)
             
             final_clip = concatenate_videoclips(clips, method="compose")
             
