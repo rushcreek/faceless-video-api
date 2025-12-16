@@ -52,6 +52,11 @@ def zoom(clip, mode="in", position="center", speed=3):
     def main(getframe, t):
         frame = getframe(t)
         h, w = frame.shape[:2]
+        
+        # Validate frame dimensions
+        if h == 0 or w == 0:
+            return frame
+        
         i = t * fps
         if mode == "out":
             i = total_frames - i
@@ -60,6 +65,10 @@ def zoom(clip, mode="in", position="center", speed=3):
         # compute the extra zoom to avoid black bars
         extra_zoom = max(w / (w - 2), h / (h - 2))
         zoom *= extra_zoom
+        
+        # Ensure zoom factor is valid
+        if zoom <= 0 or not np.isfinite(zoom):
+            return frame
 
         positions = {
             "center": [(w - (w / zoom)) / 2, (h - (h / zoom)) / 2],
@@ -73,8 +82,19 @@ def zoom(clip, mode="in", position="center", speed=3):
             "bottomright": [w - (w / zoom), h - (h / zoom)],
         }
         tx, ty = positions[position]
+        
+        # Ensure transformation matrix values are valid
+        if not (np.isfinite(tx) and np.isfinite(ty)):
+            return frame
+        
         M = np.array([[zoom, 0, -tx * zoom], [0, zoom, -ty * zoom]])
-        frame = cv2.warpAffine(frame, M, (w, h))
+        
+        try:
+            frame = cv2.warpAffine(frame, M, (w, h))
+        except Exception as e:
+            # If warpAffine fails, return original frame
+            pass
+            
         return frame
 
     return clip.fl(main)

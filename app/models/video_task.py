@@ -14,10 +14,12 @@ class VideoTask(Base):
     id = Column(String, primary_key=True, index=True)
     url = Column(String, nullable=True)
     story_style_descriptor = Column(String, nullable=True)
+    tweak_prompt = Column(Text, nullable=True)
     art_style = Column(String, nullable=False)
     duration = Column(String, nullable=False)
     voice_name = Column(String, nullable=False)
     language = Column(String, nullable=False)
+    caption_font = Column(String, nullable=True, default='BebasNeue')
     custom_story = Column(Text, nullable=False)  # Required story script
     custom_title = Column(Text, nullable=True)  # Optional title
     story_title = Column(Text)

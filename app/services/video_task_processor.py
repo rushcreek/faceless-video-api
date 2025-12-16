@@ -35,7 +35,7 @@ class VideoTaskProcessor:
         self.video_generator = VideoGenerator(self.client)
         self.storage_service = StorageService()
 
-    async def process_video_generation_task(self, task_id: str, art_style: str, duration: str, language: str, voice_name: str, custom_story: str, custom_title: str = None, story_style_descriptor: str = None):
+    async def process_video_generation_task(self, task_id: str, art_style: str, duration: str, language: str, voice_name: str, custom_story: str, custom_title: str = None, story_style_descriptor: str = None, caption_font: str = 'BebasNeue', tweak_prompt: str = None):
         task = await VideoTask.get(task_id)
         total_steps = 6  # Total number of main steps in the process
         completed_steps = 0
@@ -87,7 +87,7 @@ class VideoTaskProcessor:
             if story_style_descriptor:
                 combined_art_style = f"{story_style_descriptor} {art_style}"
             
-            image_urls = await self.image_generator.generate_images(task_id, storyboard_project, combined_art_style)
+            image_urls = await self.image_generator.generate_images(task_id, storyboard_project, combined_art_style, tweak_prompt)
             if not image_urls:
                 raise ValueError("Failed to generate images")
             completed_steps += 1
@@ -111,7 +111,7 @@ class VideoTaskProcessor:
             await task.update(task_id=task_id, progress=round(completed_steps/total_steps, 1))
 
             # Step 6: Generate and upload video
-            video_path = await self.video_generator.generate_video(storyboard_project, story_dir, voice_name)
+            video_path = await self.video_generator.generate_video(storyboard_project, story_dir, voice_name, caption_font)
             if not video_path:
                 raise ValueError("Failed to create video")
 
@@ -123,9 +123,12 @@ class VideoTaskProcessor:
             if not r2_url:
                 raise ValueError("Failed to upload video to R2")
 
+            # Use public R2 URL format
+            public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
+            
             # Update the video_task table instead of creating a new video record
             update_data = {
-                "url": r2_url,
+                "url": public_url,
                 "story_title": title,
                 "story_description": description,
                 "story_text": story,

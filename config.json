@@ -92,7 +92,12 @@
       "melancholic", "suspenseful", "inspirational", "nostalgic", "surreal",
       "epic", "intimate", "energetic", "calm", "chaotic"
     ],
+    "caption_fonts": [
+      "BakbakOne", "Bangers", "BebasNeue", "Bungee", "Caveat", "Creepster",
+      "Jua", "Knewave", "LuckiestGuy", "Montserrat", "NotoSans", "OpenSans",
+      "PermanentMarker", "RampartOne", "Ranchers", "TitanOne"
+    ],
     "use_azure_openai": false,
     "use_fal_flux": true,
-    "use_fal_flux_dev": false
+    "use_fal_flux_dev": true
 }

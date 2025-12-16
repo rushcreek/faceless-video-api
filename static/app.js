@@ -73,6 +73,17 @@ function populateDropdowns() {
     } else {
         console.error('story_style_descriptor select not found');
     }
+
+    // Populate caption fonts
+    const captionFontSelect = document.getElementById('caption_font');
+    if (captionFontSelect) {
+        captionFontSelect.innerHTML = configOptions.caption_fonts.map(font => 
+            `<option value="${font}"${font === 'BebasNeue' ? ' selected' : ''}>${font}</option>`
+        ).join('');
+        console.log('Populated caption fonts:', captionFontSelect.options.length);
+    } else {
+        console.error('caption_font select not found');
+    }
 }
 
 // Initialize on page load
@@ -90,7 +101,14 @@ function switchTab(tabName) {
     
     // Show selected tab
     document.getElementById(`${tabName}-tab`).classList.add('active');
-    event.target.classList.add('active');
+    
+    // Update active button
+    const buttons = document.querySelectorAll('.tab-button');
+    buttons.forEach(btn => {
+        if (btn.textContent.toLowerCase().includes(tabName)) {
+            btn.classList.add('active');
+        }
+    });
 }
 
 // Clear form
@@ -198,31 +216,12 @@ async function checkTaskStatus() {
         return;
     }
     
-    const token = await getAuthToken();
-    if (!token) return;
+    // Switch to status tab and populate task ID
+    switchTab('status');
+    document.getElementById('status_task_id').value = currentTaskId;
     
-    try {
-        const response = await fetch(`${API_BASE}/v1/video/tasks/${currentTaskId}`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        
-        if (response.ok) {
-            const task = await response.json();
-            updateTaskDisplay(task);
-            
-            // Continue polling if still processing
-            if (task.status === 'processing' || task.status === 'queued') {
-                setTimeout(checkTaskStatus, 5000);
-            }
-        } else {
-            alert('Failed to fetch task status');
-        }
-    } catch (error) {
-        console.error('Error:', error);
-        alert('Failed to check status: ' + error.message);
-    }
+    // Fetch the status
+    await fetchTaskStatus();
 }
 
 // Fetch task status by ID

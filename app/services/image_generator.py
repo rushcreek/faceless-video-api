@@ -19,7 +19,8 @@ class ImageGenerator:
         task_id: str,
         storyboard: Dict[str, Any],
         characters: List[Dict[str, Any]],
-        style: str
+        style: str,
+        tweak_prompt: str = None
     ) -> Optional[str]:
         # Construct the prompt
         prompt = storyboard['description']
@@ -27,6 +28,10 @@ class ImageGenerator:
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
         enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
+        
+        # Add tweak prompt if provided
+        if tweak_prompt:
+            enhanced_prompt += f" | {tweak_prompt}"
         
         # Add character descriptions
         character_descriptions = []
@@ -67,13 +72,13 @@ class ImageGenerator:
 
         return image_url, enhanced_prompt
 
-    async def generate_images(self, task_id: str, storyboard_project: Dict[str, Any], art_style: str) -> List[str]:
+    async def generate_images(self, task_id: str, storyboard_project: Dict[str, Any], art_style: str, tweak_prompt: str = None) -> List[str]:
         start_time = time.time()
         tasks = []
 
         characters = storyboard_project.get('characters', [])
         for i, storyboard in enumerate(storyboard_project['storyboards']):
-            task = self.prepare_and_generate_image(task_id, storyboard, characters, art_style)
+            task = self.prepare_and_generate_image(task_id, storyboard, characters, art_style, tweak_prompt)
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -5,7 +5,8 @@ from moviepy.editor import (
     concatenate_videoclips,
     AudioFileClip,
     CompositeVideoClip,
-    ColorClip
+    ColorClip,
+    AudioClip
 )
 from app.services.audio_generator import AudioGenerator
 from app.utils.transitions import zoom 
@@ -61,14 +62,14 @@ class VideoGenerator:
             total_height = prlogo_height + spacing + appstore_height
             start_y = (video_height - total_height) // 2
             
-            # Create logo clips
-            prlogo_clip = (ImageClip(prlogo_path)
+            # Create logo clips with transparency support
+            prlogo_clip = (ImageClip(prlogo_path, transparent=True)
                           .resize(width=prlogo_width)
                           .set_duration(duration)
                           .set_position(('center', start_y))
                           .fadein(0.5))
             
-            appstore_clip = (ImageClip(appstore_path)
+            appstore_clip = (ImageClip(appstore_path, transparent=True)
                             .resize(width=appstore_width)
                             .set_duration(duration)
                             .set_position(('center', start_y + prlogo_height + spacing))
@@ -77,17 +78,25 @@ class VideoGenerator:
             # Composite all elements
             closing_screen = CompositeVideoClip([background, prlogo_clip, appstore_clip])
             
+            # Add silent audio to prevent audio glitches when concatenating
+            # Create silent audio clip matching the duration
+            def make_frame(t):
+                return 0  # Silent audio (zero amplitude)
+            
+            silent_audio = AudioClip(make_frame, duration=duration, fps=44100)
+            closing_screen = closing_screen.set_audio(silent_audio)
+            
             return closing_screen
             
         except Exception as e:
             logger.error(f"Error creating closing screen: {str(e)}")
             return None
 
-    async def add_captions(self, output_file, output_file_subtitle):
+    async def add_captions(self, output_file, output_file_subtitle, caption_font='BebasNeue'):
         shortcap.add_captions(
             video_file=output_file,
             output_file=output_file_subtitle,
-            font=os.path.join(self.font_path, "TitanOne.ttf"),
+            font=os.path.join(self.font_path, f"{caption_font}.ttf"),
             font_size=70,
             font_color="white",
             stroke_width=3,
@@ -97,12 +106,12 @@ class VideoGenerator:
             highlight_current_word=True,
             word_highlight_color="yellow",
             line_count=1,
-            padding=70,
+            padding=480,  # Quarter way up from bottom (1920 * 0.25 = 480)
             position="bottom",
             use_local_whisper=False,
         )
 
-    async def generate_video(self, storyboard_project, story_dir, voice_name):
+    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue'):
         audio_dir = os.path.join(story_dir, "audio")
         os.makedirs(audio_dir, exist_ok=True)
         video_path = os.path.join(story_dir, "story_video.mp4")
@@ -119,33 +128,83 @@ class VideoGenerator:
                 # Create audio clip
                 audio_clip = AudioFileClip(audio_file)
                 
-                # Download and use the image
-                image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}.png")
-                downloaded_image = await download_image(scene['image'], image_path)
+                # Download and use the image - detect extension from URL
+                image_url = scene['image']
+                image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
+                image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
+                downloaded_image = await download_image(image_url, image_path)
                 
                 if downloaded_image is None:
                     logger.error(f"Skipping scene {scene['scene_number']} due to image download failure")
                     continue
                 
-                # Create image clip with duration matching the audio
-                image_clip = ImageClip(downloaded_image).set_duration(audio_clip.duration)
+                # Validate the downloaded image file exists and has content
+                if not os.path.exists(downloaded_image) or os.path.getsize(downloaded_image) == 0:
+                    logger.error(f"Skipping scene {scene['scene_number']}: image file is missing or empty")
+                    continue
                 
-                # Combine image, text, and audio
-                video_clip = image_clip.set_audio(audio_clip)
-
-                # Apply transition effect
-                transition_type = scene['transition_type']
+                logger.info(f"Successfully downloaded image for scene {scene['scene_number']}: {downloaded_image} ({os.path.getsize(downloaded_image)} bytes)")
+                
+                # Video dimensions (9:16 aspect ratio)
+                video_width = 1080
+                video_height = 1920
+                
+                try:
+                    # Create image clip and resize to fill the entire frame
+                    temp_clip = ImageClip(downloaded_image)
                     
-                if transition_type == 'zoom-in':
-                    clips.append(zoom(video_clip))
-                elif transition_type == 'zoom-out':
-                    clips.append(zoom(video_clip, mode='out'))
-                else:
-                    clips.append(video_clip)
+                    # Validate image dimensions
+                    if temp_clip.w == 0 or temp_clip.h == 0:
+                        logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
+                        continue
+                    
+                    logger.info(f"Scene {scene['scene_number']} image dimensions: {temp_clip.w}x{temp_clip.h}")
+                    
+                    # Calculate scaling to fill frame (crop excess)
+                    clip_aspect = temp_clip.w / temp_clip.h
+                    video_aspect = video_width / video_height
+                    
+                    if clip_aspect > video_aspect:
+                        # Image is wider - scale by height and crop width
+                        new_width = int(temp_clip.w * (video_height / temp_clip.h))
+                        logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
+                        image_clip = (temp_clip
+                                     .resize(height=video_height)
+                                     .crop(x_center=new_width/2, width=video_width, height=video_height)
+                                     .set_duration(audio_clip.duration))
+                    else:
+                        # Image is taller - scale by width and crop height  
+                        new_height = int(temp_clip.h * (video_width / temp_clip.w))
+                        logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
+                        image_clip = (temp_clip
+                                     .resize(width=video_width)
+                                     .crop(y_center=new_height/2, width=video_width, height=video_height)
+                                     .set_duration(audio_clip.duration))
+                    
+                    # Combine image, text, and audio
+                    video_clip = image_clip.set_audio(audio_clip)
+
+                    # Apply transition effect
+                    transition_type = scene['transition_type']
+                    
+                    logger.info(f"Adding clip for scene {scene['scene_number']} with transition: {transition_type}")
+                        
+                    if transition_type == 'zoom-in':
+                        clips.append(zoom(video_clip))
+                    elif transition_type == 'zoom-out':
+                        clips.append(zoom(video_clip, mode='out'))
+                    else:
+                        clips.append(video_clip)
+                        
+                except Exception as e:
+                    logger.error(f"Error processing image for scene {scene['scene_number']}: {str(e)}")
+                    continue
 
             if not clips:
                 logger.error("No valid clips generated")
                 return None
+            
+            logger.info(f"Total clips generated: {len(clips)}")
 
             # Add closing screen
             closing_screen = self.create_closing_screen(duration=4)
@@ -170,7 +229,7 @@ class VideoGenerator:
             )
 
             subtitle_video_path = video_path.replace('.mp4', '_subtitle.mp4')
-            await self.add_captions(video_path, subtitle_video_path)
+            await self.add_captions(video_path, subtitle_video_path, caption_font)
 
             return subtitle_video_path
         except Exception as e:

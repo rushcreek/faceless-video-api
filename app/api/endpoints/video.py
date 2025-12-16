@@ -20,7 +20,8 @@ async def get_video_config():
         "voices": settings.voices,
         "languages": settings.languages,
         "art_styles": settings.art_styles,
-        "story_style_descriptors": settings.story_style_descriptors
+        "story_style_descriptors": settings.story_style_descriptors,
+        "caption_fonts": settings.caption_fonts
     }
 
 @router.post("/video", response_model=VideoResponse)
@@ -37,10 +38,12 @@ async def generate_video(
             status="queued", 
             progress=0.0, 
             story_style_descriptor=request.story_style_descriptor,
+            tweak_prompt=request.tweak_prompt,
             art_style=request.art_style,
             duration=request.duration,
             language=request.language,
             voice_name=request.voice_name,
+            caption_font=request.caption_font,
             custom_story=request.custom_story,
             custom_title=request.custom_title
         )
@@ -54,7 +57,9 @@ async def generate_video(
             request.voice_name,
             request.custom_story,
             request.custom_title,
-            request.story_style_descriptor
+            request.story_style_descriptor,
+            request.caption_font,
+            request.tweak_prompt
         )
         
         return VideoResponse(task_id=task_id, status="queued")
