@@ -313,7 +313,17 @@ async function pollTaskStatus() {
             const statusTab = document.getElementById('status-tab');
             const statusTaskId = document.getElementById('status_task_id').value;
             if (statusTab && statusTab.classList.contains('active') && statusTaskId === currentTaskId) {
-                displayFullTaskStatus(task);
+                // Check if images are already displayed
+                const statusResult = document.getElementById('status-result');
+                const hasImages = statusResult && statusResult.querySelector('.image-grid');
+                
+                if (hasImages) {
+                    // Only update status and progress, not images
+                    updateTaskStatusOnly(task);
+                } else {
+                    // First time or no images yet - do full update
+                    displayFullTaskStatus(task);
+                }
             }
             
             // Stop polling if task is completed or failed
@@ -399,6 +409,38 @@ function updateTaskDisplay(task) {
         videoLink.innerHTML = `- <span style="color: #f44336;">Failed</span>`;
     } else {
         videoLink.innerHTML = '';
+    }
+}
+
+// Update only status and progress (don't refresh images)
+function updateTaskStatusOnly(task) {
+    const container = document.getElementById('status-result');
+    if (!container) return;
+    
+    // Update status badge
+    const statusBadge = container.querySelector('.status-badge');
+    if (statusBadge) {
+        statusBadge.textContent = task.status;
+        statusBadge.className = `status-badge ${task.status}`;
+    }
+    
+    // Update progress bar
+    const progressFill = container.querySelector('.progress-fill');
+    if (progressFill) {
+        const progress = (task.progress * 100).toFixed(0);
+        progressFill.style.width = `${progress}%`;
+        progressFill.textContent = `${progress}%`;
+    }
+    
+    // Update download link if completed
+    if (task.status === 'completed' && task.url) {
+        const videoLink = container.querySelector('p > strong');
+        if (videoLink && videoLink.textContent === 'Video:') {
+            const videoPara = videoLink.parentElement;
+            if (!videoPara.querySelector('a')) {
+                videoPara.innerHTML = `<strong>Video:</strong> <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
+            }
+        }
     }
 }
 

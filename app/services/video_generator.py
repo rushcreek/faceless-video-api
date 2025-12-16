@@ -108,9 +108,7 @@ class VideoGenerator:
             shadow_blur=0.1,
             highlight_current_word=True,
             word_highlight_color="yellow",
-            word_highlight_bg_color="black",
-            word_highlight_bg_padding=15,
-            line_count=2,  # Show 2 lines to display more words as phrases
+            line_count=2,
             padding=480,
             position="bottom",
             use_local_whisper=False,
