@@ -6,7 +6,8 @@ from moviepy.editor import (
     AudioFileClip,
     CompositeVideoClip,
     ColorClip,
-    AudioClip
+    AudioClip,
+    TextClip
 )
 from app.services.audio_generator import AudioGenerator
 from app.utils.transitions import zoom 
@@ -15,6 +16,7 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.utils.image_utils import download_image
 from PIL import Image
+import json
 
 class VideoGenerator:
     def __init__(self, client=None):
@@ -93,11 +95,12 @@ class VideoGenerator:
             return None
 
     async def add_captions(self, output_file, output_file_subtitle, caption_font='BebasNeue'):
+        """Add phrase-based captions to video"""
         shortcap.add_captions(
             video_file=output_file,
             output_file=output_file_subtitle,
             font=os.path.join(self.font_path, f"{caption_font}.ttf"),
-            font_size=70,
+            font_size=80,
             font_color="white",
             stroke_width=3,
             stroke_color="black",
@@ -105,8 +108,10 @@ class VideoGenerator:
             shadow_blur=0.1,
             highlight_current_word=True,
             word_highlight_color="yellow",
-            line_count=1,
-            padding=480,  # Quarter way up from bottom (1920 * 0.25 = 480)
+            word_highlight_bg_color="black",
+            word_highlight_bg_padding=15,
+            line_count=2,  # Show 2 lines to display more words as phrases
+            padding=480,
             position="bottom",
             use_local_whisper=False,
         )

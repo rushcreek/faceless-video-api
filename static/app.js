@@ -3,6 +3,7 @@ const API_BASE = 'http://localhost:8000';
 let currentTaskId = null;
 let accessToken = null;
 let configOptions = null;
+let statusPollingInterval = null;
 
 // Load configuration options on page load
 async function loadConfigOptions() {
@@ -84,10 +85,69 @@ function populateDropdowns() {
     } else {
         console.error('caption_font select not found');
     }
+    
+    // Restore saved form values from localStorage
+    restoreFormValues();
+}
+
+// Save form values to localStorage
+function saveFormValues() {
+    const formData = {
+        custom_story: document.getElementById('custom_story')?.value || '',
+        custom_title: document.getElementById('custom_title')?.value || '',
+        tweak_prompt: document.getElementById('tweak_prompt')?.value || '',
+        story_style_descriptor: document.getElementById('story_style_descriptor')?.value || '',
+        art_style: document.getElementById('art_style')?.value || '',
+        voice_name: document.getElementById('voice_name')?.value || '',
+        language: document.getElementById('language')?.value || '',
+        caption_font: document.getElementById('caption_font')?.value || ''
+    };
+    localStorage.setItem('videoFormData', JSON.stringify(formData));
+    console.log('Form data saved to localStorage');
+}
+
+// Restore form values from localStorage
+function restoreFormValues() {
+    const savedData = localStorage.getItem('videoFormData');
+    if (!savedData) return;
+    
+    try {
+        const formData = JSON.parse(savedData);
+        
+        if (formData.custom_story) document.getElementById('custom_story').value = formData.custom_story;
+        if (formData.custom_title) document.getElementById('custom_title').value = formData.custom_title;
+        if (formData.tweak_prompt) document.getElementById('tweak_prompt').value = formData.tweak_prompt;
+        if (formData.story_style_descriptor) document.getElementById('story_style_descriptor').value = formData.story_style_descriptor;
+        if (formData.art_style) document.getElementById('art_style').value = formData.art_style;
+        if (formData.voice_name) document.getElementById('voice_name').value = formData.voice_name;
+        if (formData.language) document.getElementById('language').value = formData.language;
+        if (formData.caption_font) document.getElementById('caption_font').value = formData.caption_font;
+        
+        console.log('Form data restored from localStorage');
+    } catch (error) {
+        console.error('Error restoring form data:', error);
+    }
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', loadConfigOptions);
+document.addEventListener('DOMContentLoaded', () => {
+    loadConfigOptions();
+    
+    // Add event listeners to save form values when they change
+    const formFields = [
+        'custom_story', 'custom_title', 'tweak_prompt',
+        'story_style_descriptor', 'art_style', 'voice_name', 
+        'language', 'caption_font'
+    ];
+    
+    formFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            const eventType = field.tagName === 'TEXTAREA' || field.type === 'text' ? 'input' : 'change';
+            field.addEventListener(eventType, saveFormValues);
+        }
+    });
+});
 
 // Tab Switching
 function switchTab(tabName) {
@@ -115,6 +175,8 @@ function switchTab(tabName) {
 function clearForm() {
     document.getElementById('video-form').reset();
     document.getElementById('video-result').style.display = 'none';
+    localStorage.removeItem('videoFormData');
+    console.log('Form cleared and localStorage removed');
 }
 
 // Get authentication token
@@ -197,8 +259,8 @@ document.getElementById('video-form').addEventListener('submit', async (e) => {
             document.getElementById('task-status').className = 'status-badge';
             document.getElementById('video-result').style.display = 'block';
             
-            // Auto-check status every 5 seconds
-            setTimeout(checkTaskStatus, 5000);
+            // Start polling status every 5 seconds
+            startStatusPolling();
         } else {
             const error = await response.json();
             alert('Error: ' + (error.detail || 'Failed to generate video'));
@@ -209,7 +271,53 @@ document.getElementById('video-form').addEventListener('submit', async (e) => {
     }
 });
 
-// Check task status
+// Start polling task status
+function startStatusPolling() {
+    // Clear any existing polling
+    stopStatusPolling();
+    
+    // Poll immediately, then every 5 seconds
+    pollTaskStatus();
+    statusPollingInterval = setInterval(pollTaskStatus, 5000);
+}
+
+// Stop polling task status
+function stopStatusPolling() {
+    if (statusPollingInterval) {
+        clearInterval(statusPollingInterval);
+        statusPollingInterval = null;
+    }
+}
+
+// Poll current task status
+async function pollTaskStatus() {
+    if (!currentTaskId) return;
+    
+    const token = await getAuthToken();
+    if (!token) return;
+    
+    try {
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${currentTaskId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            const task = await response.json();
+            updateTaskDisplay(task);
+            
+            // Stop polling if task is completed or failed
+            if (task.status === 'completed' || task.status === 'failed') {
+                stopStatusPolling();
+            }
+        }
+    } catch (error) {
+        console.error('Error polling task status:', error);
+    }
+}
+
+// Check task status (called when user clicks Check Status button)
 async function checkTaskStatus() {
     if (!currentTaskId) {
         alert('No task ID available');
@@ -232,6 +340,9 @@ async function fetchTaskStatus() {
         return;
     }
     
+    // Update currentTaskId and start polling
+    currentTaskId = taskId;
+    
     const token = await getAuthToken();
     if (!token) return;
     
@@ -245,6 +356,11 @@ async function fetchTaskStatus() {
         if (response.ok) {
             const task = await response.json();
             displayFullTaskStatus(task);
+            
+            // Start polling if task is still in progress
+            if (task.status !== 'completed' && task.status !== 'failed') {
+                startStatusPolling();
+            }
         } else {
             alert('Task not found');
         }
@@ -254,17 +370,25 @@ async function fetchTaskStatus() {
     }
 }
 
-// Update task display
+// Update task display (main tab)
 function updateTaskDisplay(task) {
     const statusBadge = document.getElementById('task-status');
     statusBadge.textContent = task.status;
     statusBadge.className = `status-badge ${task.status}`;
+    
+    // Update task ID if different
+    const taskIdElement = document.getElementById('task-id');
+    if (taskIdElement.textContent !== task.task_id) {
+        taskIdElement.textContent = task.task_id;
+    }
     
     // Show download link if video is completed
     const videoLink = document.getElementById('video-link');
     if (task.status === 'completed' && task.url) {
         videoLink.innerHTML = `- <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
     } else if (task.status === 'failed') {
+        videoLink.innerHTML = `- <span style="color: #f44336;">Failed</span>`;
+    } else {
         videoLink.innerHTML = '';
     }
 }
