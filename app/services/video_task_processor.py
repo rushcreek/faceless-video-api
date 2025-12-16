@@ -8,7 +8,6 @@ from app.services.image_generator import ImageGenerator
 from app.services.video_generator import VideoGenerator 
 from app.utils.helpers import create_resource_dir
 from app.models.video_task import VideoTask
-from app.constants.story_types import STORY_STYLE_DESCRIPTORS
 from app.services.image_api import fal_flux_api, replicate_flux_api
 from app.core.logging import logger
 from app.services.storage import StorageService

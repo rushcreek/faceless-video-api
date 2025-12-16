@@ -8,7 +8,7 @@
       "char_limit_max": 1500 
     },
     "storyboard": {
-      "max_scenes": 14
+      "max_scenes": 30
     },
     "openai": {
       "model": "gpt-4o",
@@ -40,6 +40,58 @@
     "tts": {
       "speech_rate": 1.1
     },
+    "voices": [
+      {
+        "id": "barbershop-man",
+        "name": "Barbershop Man",
+        "cartesia_id": "a0e99841-438c-4a64-b679-ae501e7d6091"
+      },
+      {
+        "id": "calm-lady",
+        "name": "Calm Lady",
+        "cartesia_id": "79a125e8-cd45-4c13-8a67-188112f4dd22"
+      },
+      {
+        "id": "female-conversational",
+        "name": "Female Conversational",
+        "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
+      },
+      {
+        "id": "female-narrator",
+        "name": "Female Narrator",
+        "cartesia_id": "156fb8d2-335b-4950-9cb3-a2d33befec77"
+      },
+      {
+        "id": "male-conversational",
+        "name": "Male Conversational",
+        "cartesia_id": "95856005-0332-41b0-935f-352e296aa0df"
+      },
+      {
+        "id": "male-narrator",
+        "name": "Male Narrator",
+        "cartesia_id": "820a3788-2b37-4d21-847a-b65d8a68c99a"
+      },
+      {
+        "id": "friendly-sidekick",
+        "name": "Friendly Sidekick",
+        "cartesia_id": "42b39f37-515f-4eee-8546-73e841679c1d"
+      }
+    ],
+    "languages": [
+      "english", "czech", "danish", "dutch", "french", "german", "greek", 
+      "hindi", "indonesian", "italian", "chinese", "japanese", "norwegian", 
+      "polish", "portuguese", "russian", "spanish", "swedish", "turkish", "ukrainian"
+    ],
+    "art_styles": [
+      "photorealistic", "cinematic", "anime", "comic-book", "pixar-art",
+      "oil-painting", "watercolor", "sketch", "noir", "cyberpunk",
+      "fantasy", "minimalist", "impressionist", "pop-art", "steampunk"
+    ],
+    "story_style_descriptors": [
+      "dark", "mysterious", "uplifting", "dramatic", "whimsical",
+      "melancholic", "suspenseful", "inspirational", "nostalgic", "surreal",
+      "epic", "intimate", "energetic", "calm", "chaotic"
+    ],
     "use_azure_openai": false,
     "use_fal_flux": true,
     "use_fal_flux_dev": false

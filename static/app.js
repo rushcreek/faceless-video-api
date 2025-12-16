@@ -2,6 +2,56 @@
 const API_BASE = 'http://localhost:8000';
 let currentTaskId = null;
 let accessToken = null;
+let configOptions = null;
+
+// Load configuration options on page load
+async function loadConfigOptions() {
+    try {
+        const response = await fetch(`${API_BASE}/v1/video/config`);
+        if (response.ok) {
+            configOptions = await response.json();
+            populateDropdowns();
+        }
+    } catch (error) {
+        console.error('Failed to load config options:', error);
+    }
+}
+
+// Populate dropdowns with config data
+function populateDropdowns() {
+    if (!configOptions) return;
+
+    // Populate voices
+    const voiceSelect = document.getElementById('voice_name');
+    voiceSelect.innerHTML = configOptions.voices.map(v => 
+        `<option value="${v.id}">${v.name}</option>`
+    ).join('');
+
+    // Populate languages
+    const languageSelect = document.getElementById('language');
+    languageSelect.innerHTML = configOptions.languages.map(lang => 
+        `<option value="${lang}">${lang.charAt(0).toUpperCase() + lang.slice(1)}</option>`
+    ).join('');
+
+    // Populate art styles
+    const artStyleSelect = document.getElementById('art_style');
+    artStyleSelect.innerHTML = configOptions.art_styles.map(style => {
+        const displayName = style.split('-').map(word => 
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+        return `<option value="${style}"${style === 'cinematic' ? ' selected' : ''}>${displayName}</option>`;
+    }).join('');
+
+    // Populate story style descriptors
+    const styleDescriptorSelect = document.getElementById('story_style_descriptor');
+    styleDescriptorSelect.innerHTML = '<option value="">None</option>' + 
+        configOptions.story_style_descriptors.map(desc => 
+            `<option value="${desc}">${desc.charAt(0).toUpperCase() + desc.slice(1)}</option>`
+        ).join('');
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', loadConfigOptions);
 
 // Tab Switching
 function switchTab(tabName) {
@@ -70,7 +120,6 @@ document.getElementById('video-form').addEventListener('submit', async (e) => {
     const data = {
         custom_story: customStory.trim(),
         art_style: formData.get('art_style'),
-        duration: formData.get('duration'),
         voice_name: formData.get('voice_name'),
         language: formData.get('language')
     };

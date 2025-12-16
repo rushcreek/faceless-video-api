@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     fal_flux_schnell_api: dict | None = None
     replicate_flux_api: dict | None = None
     tts: dict | None = None
+    voices: list | None = None
+    languages: list | None = None
+    art_styles: list | None = None
+    story_style_descriptors: list | None = None
     azure_api_version: str | None = None
     use_fal_flux: bool | None = None
     use_fal_flux_dev: bool | None = None
@@ -55,7 +59,7 @@ class Settings(BaseSettings):
     def set_story_dir(cls, v, info):
         return v or os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), "data")
 
-    @field_validator('story_limit_short', 'story_limit_long', 'storyboard', 'openai', 'fal_flux_dev_api', 'fal_flux_schnell_api', 'replicate_flux_api', 'tts', 'use_fal_flux', 'use_fal_flux_dev', 'use_azure_openai', 'azure_api_version', mode='before')
+    @field_validator('story_limit_short', 'story_limit_long', 'storyboard', 'openai', 'fal_flux_dev_api', 'fal_flux_schnell_api', 'replicate_flux_api', 'tts', 'voices', 'languages', 'art_styles', 'story_style_descriptors', 'use_fal_flux', 'use_fal_flux_dev', 'use_azure_openai', 'azure_api_version', mode='before')
     def load_json_config(cls, v, info):
         if v is None or (isinstance(v, (str, dict)) and not v):
             config_path = os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), 'config.json')

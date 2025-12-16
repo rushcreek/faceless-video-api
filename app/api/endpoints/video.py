@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, HTTPException
 from app.schemas.video import VideoRequest, VideoResponse, VideoTaskStatus
 from app.core.security import get_current_user
+from app.core.config import settings
 from app.models.video_task import VideoTask
 from app.services.video_task_processor import VideoTaskProcessor
 from uuid import uuid4
@@ -11,6 +12,16 @@ from pydantic import ValidationError
 
 router = APIRouter()
 video_task_processor = VideoTaskProcessor()
+
+@router.get("/video/config")
+async def get_video_config():
+    """Get available configuration options for video generation"""
+    return {
+        "voices": settings.voices,
+        "languages": settings.languages,
+        "art_styles": settings.art_styles,
+        "story_style_descriptors": settings.story_style_descriptors
+    }
 
 @router.post("/video", response_model=VideoResponse)
 async def generate_video(
