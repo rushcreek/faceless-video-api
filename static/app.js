@@ -317,7 +317,11 @@ async function pollTaskStatus() {
                 const statusResult = document.getElementById('status-result');
                 const hasImages = statusResult && statusResult.querySelector('.image-grid');
                 
-                if (hasImages) {
+                // If task just completed (100% progress or completed status), always refresh with full details
+                if (task.status === 'completed' || task.progress >= 1.0) {
+                    // Refresh with full task details including video link and all features
+                    displayFullTaskStatus(task);
+                } else if (hasImages) {
                     // Only update status and progress, not images
                     updateTaskStatusOnly(task);
                 } else {
@@ -326,7 +330,7 @@ async function pollTaskStatus() {
                 }
             }
             
-            // Stop polling if task is completed or failed
+            // Stop polling AFTER updating the UI if task is completed or failed
             if (task.status === 'completed' || task.status === 'failed') {
                 stopStatusPolling();
             }
@@ -450,14 +454,32 @@ function updateTaskStatusOnly(task) {
         statusMsgEl.remove();
     }
     
-    // Update download link if completed
+    // Add or update download link if completed
     if (task.status === 'completed' && task.url) {
-        const videoLink = container.querySelector('p > strong');
-        if (videoLink && videoLink.textContent === 'Video:') {
-            const videoPara = videoLink.parentElement;
-            if (!videoPara.querySelector('a')) {
-                videoPara.innerHTML = `<strong>Video:</strong> <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
+        // Try to find existing video paragraph
+        let videoPara = null;
+        const strongs = container.querySelectorAll('p > strong');
+        for (let strong of strongs) {
+            if (strong.textContent === 'Video:') {
+                videoPara = strong.parentElement;
+                break;
             }
+        }
+        
+        // If not found, create it after the Created timestamp
+        if (!videoPara) {
+            videoPara = document.createElement('p');
+            const taskIdPara = container.querySelector('p:nth-of-type(3)'); // Created is 3rd paragraph
+            if (taskIdPara && taskIdPara.nextSibling) {
+                taskIdPara.parentNode.insertBefore(videoPara, taskIdPara.nextSibling);
+            } else if (taskIdPara) {
+                taskIdPara.parentNode.appendChild(videoPara);
+            }
+        }
+        
+        // Update the content with download link
+        if (videoPara && !videoPara.querySelector('a')) {
+            videoPara.innerHTML = `<strong>Video:</strong> <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
         }
     }
 }

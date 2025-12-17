@@ -8,7 +8,7 @@
       "char_limit_max": 1500 
     },
     "storyboard": {
-      "max_scenes": 30
+      "max_scenes": 38
     },
     "openai": {
       "model": "gpt-4o",

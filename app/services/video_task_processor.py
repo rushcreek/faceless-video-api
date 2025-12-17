@@ -42,13 +42,13 @@ class VideoTaskProcessor:
 
     async def process_video_generation_task(self, task_id: str, art_style: str, duration: str, language: str, voice_name: str, custom_story: str, custom_title: str = None, story_style_descriptor: str = None, caption_font: str = 'BebasNeue', tweak_prompt: str = None):
         task = await VideoTask.get(task_id)
-        # More granular progress tracking:
-        # 0-10%: Story setup
-        # 10-20%: Resource directory and characters
-        # 20-30%: Storyboard generation
-        # 30-80%: Image generation (50% of total time)
-        # 80-90%: Save images to database
-        # 90-100%: Video generation and upload
+        # Progress tracking based on actual timing (total ~2-3 minutes):
+        # 0-5%: Story setup (~3s)
+        # 5-15%: Characters generation (~10s)
+        # 15-30%: Storyboard generation (~30s)
+        # 30-45%: Image generation (~15s with parallel Runware)
+        # 45-50%: Save images to database (~3s)
+        # 50-100%: Video generation and upload (~60-90s - SLOWEST phase)
 
         try:
             await task.update(task_id=task_id, status="processing", progress=0)
@@ -64,7 +64,7 @@ class VideoTaskProcessor:
             
             logger.info(f"Processing task {task_id} with story_style_descriptor: {story_style_descriptor}")
             
-            await task.update(task_id=task_id, progress=0.1, status_message="Story prepared")
+            await task.update(task_id=task_id, progress=0.05, status_message="Story prepared")
 
             # Step 2: Create resource directory and generate characters
             story_dir_name = story_style_descriptor if story_style_descriptor else "custom"
@@ -75,7 +75,7 @@ class VideoTaskProcessor:
             if story_style_descriptor in ['dramatic', 'mysterious', 'epic', 'intimate']:
                 characters = await self.story_generator.generate_characters(story)
             
-            await task.update(task_id=task_id, progress=0.2, status_message="Characters created")
+            await task.update(task_id=task_id, progress=0.15, status_message="Characters created")
 
             # Step 3: Generate storyboard
             # Combine style descriptor with story for better image prompts
@@ -83,28 +83,34 @@ class VideoTaskProcessor:
             if story_style_descriptor:
                 enhanced_story = f"[{story_style_descriptor.upper()} MOOD] {story}"
             
-            storyboard_project = await self.story_generator.generate_storyboard(story_dir_name, title, enhanced_story, [c["name"] for c in characters])
+            storyboard_project = await self.story_generator.generate_storyboard(
+                title, 
+                enhanced_story, 
+                [c["name"] for c in characters],
+                tweak_prompt=tweak_prompt,
+                art_style=art_style
+            )
             if not storyboard_project.get("storyboards"):
                 raise ValueError("Failed to generate storyboard")
             storyboard_project["characters"] = characters
-            await task.update(task_id=task_id, progress=0.3, status_message="Storyboard created")
+            await task.update(task_id=task_id, progress=0.30, status_message="Storyboard created")
 
             # Step 4: Generate images with combined art style + descriptor
             combined_art_style = art_style
             if story_style_descriptor:
                 combined_art_style = f"{story_style_descriptor} {art_style}"
             
-            # Progress callback for image generation (30% to 80% = 50% total)
+            # Progress callback for image generation (30% to 45% = 15% total)
             total_images = len(storyboard_project.get("storyboards", []))
             async def image_progress_callback(completed, total):
-                # Map image progress from 30% to 80%
-                progress = 0.3 + (0.5 * (completed / total))
+                # Map image progress from 30% to 45%
+                progress = 0.30 + (0.15 * (completed / total))
                 await task.update(task_id=task_id, progress=round(progress, 2), status_message=f"Generating images ({completed}/{total})")
             
             image_urls = await self.image_generator.generate_images(task_id, storyboard_project, combined_art_style, tweak_prompt, progress_callback=image_progress_callback)
             if not image_urls:
                 raise ValueError("Failed to generate images")
-            await task.update(task_id=task_id, progress=0.8, status_message="Images generated")
+            await task.update(task_id=task_id, progress=0.45, status_message="Images generated")
 
             # Step 5: Save images to database
             image_create_tasks = []
@@ -120,14 +126,25 @@ class VideoTaskProcessor:
                 }
                 image_create_tasks.append(Image.create(**image_data))
             await asyncio.gather(*image_create_tasks)
-            await task.update(task_id=task_id, progress=0.9, status_message="Images saved")
+            await task.update(task_id=task_id, progress=0.50, status_message="Images saved")
 
             # Step 6: Generate and upload video
-            # Progress callback for video generation (90% to 98%)
+            # Progress callback for video generation (50% to 98%)
             async def video_progress_callback(progress_value, message):
-                # Map internal video progress to overall progress
-                # 0.90-0.98 range for video creation
-                overall_progress = 0.90 + (progress_value - 0.90) * 0.8  # Scale to 90-98%
+                # Map internal video progress (0.90-0.98) to overall progress (50-98%)
+                # Internal: 0.91 -> 54%, 0.915 -> 62%, 0.918 -> 68%, 0.92 -> 70%, 0.96 -> 90%, 0.98 -> 98%
+                if progress_value <= 0.91:
+                    overall_progress = 0.50 + (progress_value - 0.90) * 40  # 0.90-0.91 -> 50-54%
+                elif progress_value <= 0.915:
+                    overall_progress = 0.54 + (progress_value - 0.91) * 160  # 0.91-0.915 -> 54-62%
+                elif progress_value <= 0.918:
+                    overall_progress = 0.62 + (progress_value - 0.915) * 200  # 0.915-0.918 -> 62-68%
+                elif progress_value <= 0.92:
+                    overall_progress = 0.68 + (progress_value - 0.918) * 100  # 0.918-0.92 -> 68-70%
+                elif progress_value <= 0.96:
+                    overall_progress = 0.70 + (progress_value - 0.92) * 5  # 0.92-0.96 -> 70-90%
+                else:
+                    overall_progress = 0.90 + (progress_value - 0.96) * 4  # 0.96-0.98 -> 90-98%
                 await task.update(task_id=task_id, progress=round(overall_progress, 2), status_message=message)
             
             video_path = await self.video_generator.generate_video(
