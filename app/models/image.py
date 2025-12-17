@@ -18,6 +18,7 @@ class Image(Base):
     urls = Column(JSONB, default=list)
     subtitles = Column(Text)
     enhanced_prompt = Column(Text)
+    video_generation_request = Column(JSONB, nullable=True)  # Seadance 1.0 video generation request
     error_message = Column(Text)
     status = Column(Enum('queued', 'processing', 'completed', 'failed', name='image_status'), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

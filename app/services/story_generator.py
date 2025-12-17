@@ -85,6 +85,84 @@ class StoryGenerator:
                 logger.error("No JSON array found in the response.")
                 return []
 
+    async def generate_video_prompt(self, scene_description: str, art_style: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate a Seadance 1.0 video generation request based on an image scene description.
+        Returns a complete JSON request for video generation from the image.
+        """
+        prompt = f"""Based on this image scene description, create a compelling video motion prompt for Seadance 1.0 video generation.
+
+Scene Description: {scene_description}
+Art Style: {art_style if art_style else 'photorealistic'}
+
+Create a video prompt that describes natural, realistic motion that would bring this scene to life. Consider:
+- Camera movements (subtle pans, tilts, slow zoom)
+- Subject actions (if person: looking at camera, performing described actions, natural gestures, facial expressions)
+- Environmental motion (wind, water, leaves, clouds, ambient movement)
+- Lighting changes (subtle shifts, flickers if applicable)
+- Overall cinematic quality and pacing
+
+The motion should be:
+- Smooth and professional
+- Appropriate for the scene's mood and content
+- Natural and believable
+- Not overly dramatic unless the scene calls for it
+
+Generate a complete Seadance 1.0 API request in JSON format with these fields:
+- prompt: Detailed motion description (focus on movement, actions, camera work)
+- negative_prompt: What to avoid in the video
+- num_inference_steps: Recommended inference steps (default: 50)
+- guidance_scale: Recommended guidance scale (default: 7.5)
+- duration: Video duration in seconds (default: 5)
+- fps: Frames per second (default: 24)
+
+Return ONLY the JSON object, no other text."""
+
+        messages = [
+            {
+                "role": "system",
+                "content": """You are an expert in video generation and motion design. You specialize in:
+                1. Translating static image descriptions into dynamic video motion prompts
+                2. Understanding natural human behavior and realistic camera movements
+                3. Creating prompts optimized for AI video generation models like Seadance 1.0
+                4. Balancing subtle motion with engaging visual storytelling
+                5. Ensuring motion matches the mood, style, and context of the scene
+                
+                You create professional, cinema-quality motion descriptions that enhance scenes without being overly dramatic."""
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        response = await call_openai_api(self.client, messages)
+        if not response:
+            logger.error("API returned empty response for video prompt")
+            return self._create_default_video_request()
+        
+        # Find the JSON part of the response
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            try:
+                video_request = json.loads(json_str)
+                return video_request
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON Decode Error in video prompt: {e}")
+                return self._create_default_video_request()
+        else:
+            logger.error("No JSON object found in video prompt response")
+            return self._create_default_video_request()
+    
+    def _create_default_video_request(self) -> Dict[str, Any]:
+        """Create a default video generation request when AI generation fails"""
+        return {
+            "prompt": "Subtle camera movement, natural ambient motion",
+            "negative_prompt": "static, frozen, jerky motion, unnatural movement",
+            "num_inference_steps": 50,
+            "guidance_scale": 7.5,
+            "duration": 5,
+            "fps": 24
+        }
+
     async def generate_storyboard(self, title: str, story: str, character_names: List[str], tweak_prompt: Optional[str] = None, art_style: Optional[str] = None) -> Dict[str, Any]:
         """Generate storyboard from custom story - universal method"""
         max_scenes = self.config.storyboard.get('max_scenes', 30)
@@ -222,6 +300,19 @@ class StoryGenerator:
             json_str = json_match.group()
             try:
                 storyboard_data = json.loads(json_str)
+                
+                # Generate video prompts for each scene
+                logger.info("Generating video prompts for storyboard scenes...")
+                if storyboard_data.get("storyboards"):
+                    for scene in storyboard_data["storyboards"]:
+                        scene_description = scene.get("description", "")
+                        if scene_description:
+                            logger.info(f"Generating video prompt for scene {scene.get('scene_number', 'unknown')}")
+                            video_request = await self.generate_video_prompt(scene_description, art_style)
+                            scene["video_generation_request"] = video_request
+                        else:
+                            scene["video_generation_request"] = self._create_default_video_request()
+                
                 return storyboard_data
             except json.JSONDecodeError as e:
                 logger.error(f"JSON Decode Error: {e}")

@@ -562,8 +562,32 @@ function displayFullTaskStatus(task) {
                     <div class="image-card">
                         <img src="${img.urls[0]}" alt="Scene ${idx + 1}">
                         <p>${img.subtitles || `Scene ${idx + 1}`}</p>
-                    </div>
                 `;
+                
+                // Add video generation request if available
+                if (img.video_generation_request) {
+                    const videoReq = img.video_generation_request;
+                    html += `
+                        <details class="video-prompt-details">
+                            <summary style="cursor: pointer; color: #667eea; font-weight: bold; margin-top: 8px;">📹 Video Prompt</summary>
+                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em;">
+                                <p><strong>Motion Prompt:</strong><br>${videoReq.prompt || 'N/A'}</p>
+                                <p style="margin-top: 8px;"><strong>Negative:</strong><br>${videoReq.negative_prompt || 'N/A'}</p>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; font-size: 0.85em;">
+                                    <p><strong>Steps:</strong> ${videoReq.num_inference_steps || 50}</p>
+                                    <p><strong>Guidance:</strong> ${videoReq.guidance_scale || 7.5}</p>
+                                    <p><strong>Duration:</strong> ${videoReq.duration || 5}s</p>
+                                    <p><strong>FPS:</strong> ${videoReq.fps || 24}</p>
+                                </div>
+                                <button onclick="copyVideoRequest(${idx})" style="margin-top: 10px; padding: 5px 10px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    Copy JSON Request
+                                </button>
+                            </div>
+                        </details>
+                    `;
+                }
+                
+                html += `</div>`;
             }
         });
         
@@ -577,6 +601,34 @@ function displayFullTaskStatus(task) {
     html += `</div>`;
     
     container.innerHTML = html;
+}
+
+// Copy video generation request to clipboard
+function copyVideoRequest(imageIndex) {
+    const taskId = document.getElementById('status_task_id').value.trim();
+    if (!taskId) return;
+    
+    // Get the current task from the last fetch
+    fetch(`${API_BASE}/v1/video/tasks/${taskId}`)
+        .then(response => response.json())
+        .then(task => {
+            if (task.images && task.images[imageIndex] && task.images[imageIndex].video_generation_request) {
+                const videoReq = task.images[imageIndex].video_generation_request;
+                const jsonStr = JSON.stringify(videoReq, null, 2);
+                
+                // Copy to clipboard
+                navigator.clipboard.writeText(jsonStr).then(() => {
+                    alert('Video request JSON copied to clipboard!');
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                    // Fallback: show the JSON in a prompt
+                    prompt('Copy this JSON:', jsonStr);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching task:', error);
+        });
 }
 
 // Admin settings functions

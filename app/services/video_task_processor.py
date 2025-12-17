@@ -110,14 +110,16 @@ class VideoTaskProcessor:
             # Step 5: Save images to database
             image_create_tasks = []
             for i, image_url in enumerate(image_urls):
+                storyboard_scene = storyboard_project["storyboards"][i]
                 image_data = {
                     "id": str(uuid4()),
                     "task_id": task_id,
                     "urls": [image_url] if image_url else [],
-                    "subtitles": storyboard_project["storyboards"][i]["description"],
+                    "subtitles": storyboard_scene["description"],
                     "status": "completed" if image_url else "failed",
-                    "enhanced_prompt": storyboard_project["storyboards"][i].get("enhanced_prompt", ""),
-                    "error_message": storyboard_project["storyboards"][i].get("error_message", "")
+                    "enhanced_prompt": storyboard_scene.get("enhanced_prompt", ""),
+                    "video_generation_request": storyboard_scene.get("video_generation_request"),
+                    "error_message": storyboard_scene.get("error_message", "")
                 }
                 image_create_tasks.append(Image.create(**image_data))
             await asyncio.gather(*image_create_tasks)
