@@ -240,6 +240,16 @@ document.getElementById('video-form').addEventListener('submit', async (e) => {
         data.story_style_descriptor = storyStyleDescriptor.trim();
     }
     
+    const tweakPrompt = formData.get('tweak_prompt');
+    if (tweakPrompt && tweakPrompt.trim()) {
+        data.tweak_prompt = tweakPrompt.trim();
+    }
+    
+    const captionFont = formData.get('caption_font');
+    if (captionFont && captionFont.trim()) {
+        data.caption_font = captionFont.trim();
+    }
+    
     try {
         const response = await fetch(`${API_BASE}/v1/video`, {
             method: 'POST',

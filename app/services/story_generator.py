@@ -95,10 +95,8 @@ class StoryGenerator:
         if tweak_prompt:
             tweak_guidance = f"\n\nAdditional Visual Guidance: {tweak_prompt}\nApply this guidance to the visual descriptions, camera work, and lighting choices throughout all scenes."
         
-        # Add art style guidance if provided
-        art_style_guidance = ""
-        if art_style:
-            art_style_guidance = f"\n\nArt Style: {art_style}\nEnsure all scene descriptions are appropriate for this art style."
+        # Add art style guidance - always enforce the art style
+        art_style_guidance = f"\n\nArt Style: {art_style if art_style else 'photorealistic'}\nCRITICAL: ALL scene descriptions MUST be appropriate for and explicitly reference this {art_style if art_style else 'photorealistic'} art style. Every visual element should be described in a way that clearly conveys this artistic treatment."
         
         prompt = f"""Based on the following custom story, create a detailed storyboard with up to {max_scenes} scenes.
 
@@ -108,11 +106,11 @@ class StoryGenerator:
             {art_style_guidance}
 
             IMPORTANT TERMINOLOGY RULES:
-            - NEVER use the words "animate", "animated", "animation", or "stylized" in your descriptions
+            - NEVER use the words "animate", "animated", "animation", "stylized", "illustration", or "illustrated" in your descriptions
             - Instead, rely on the specified art style to convey non-realistic character styles
-            - Use terms like "illustrated", "rendered", "depicted", "portrayed", or "designed"
+            - Use terms like "rendered", "depicted", "portrayed", or "designed"
             - For character descriptions, focus on visual appearance, not animation state
-            - Example: Instead of "animated character" or "stylized character", use "illustrated character" or "{art_style if art_style else 'rendered'} character"
+            - Example: Instead of "animated character", "stylized character", or "illustrated character", use "{art_style if art_style else 'rendered'} character" or "depicted character"
 
             First, create an opening scene:
             1. Scene Number: 1
@@ -142,8 +140,9 @@ class StoryGenerator:
             - When using a character's name in possessive form (e.g., "Character's") in the description, 
               surround it with double curly braces {{{{{{{{ }}}}}}}} if it's not referring to the character's appearance.
             {f"- Apply the visual guidance throughout: {tweak_prompt}" if tweak_prompt else ""}
-            {f"- Ensure all descriptions match the {art_style} art style" if art_style else ""}
-            - NEVER use "animate", "animated", "animation", or "stylized" - use alternative descriptive terms
+            - CRITICAL: Every scene description MUST explicitly incorporate the {art_style if art_style else 'photorealistic'} art style
+            - Describe all visual elements in a way that clearly conveys the {art_style if art_style else 'photorealistic'} artistic treatment
+            - NEVER use "animate", "animated", "animation", "stylized", "illustration", or "illustrated" - use alternative descriptive terms
 
             Use only the following options for camera, lighting, and transition details:
             - Camera angles: low angle, high angle, Dutch angle, bird's eye view, worm's eye view, eye level, canted angle
@@ -199,11 +198,12 @@ class StoryGenerator:
                     7. Specifying appropriate camera angles, compositions, shot sizes, and lighting
                     8. Maintaining logical consistency between scene content and technical descriptions
                     {"9. Applying creative visual guidance while preserving story integrity" if tweak_prompt else ""}
-                    {"10. Ensuring all descriptions match the " + art_style + " art style" if art_style else ""}
+                    10. ALWAYS ensuring every scene description explicitly reflects the {art_style if art_style else 'photorealistic'} art style
+                    11. Describing all visual elements in ways that clearly convey the artistic treatment
 
-                    CRITICAL: You NEVER use the words "animate", "animated", "animation", or "stylized" in your descriptions.
-                    Instead, you use terms like "illustrated", "rendered", "depicted", "portrayed", or "designed".
-                    The art style specification handles the visual treatment - you focus on describing what is seen.
+                    CRITICAL: You NEVER use the words "animate", "animated", "animation", "stylized", "illustration", or "illustrated" in your descriptions.
+                    Instead, you use terms like "rendered", "depicted", "portrayed", or "designed".
+                    The art style specification handles the visual treatment - you focus on describing what is seen in that {art_style if art_style else 'photorealistic'} style.
 
                     Your storyboards effectively bridge the gap between written narrative and visual representation, 
                     working seamlessly with any story type, genre, or art style.'''

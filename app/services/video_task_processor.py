@@ -78,14 +78,9 @@ class VideoTaskProcessor:
             await task.update(task_id=task_id, progress=0.15, status_message="Characters created")
 
             # Step 3: Generate storyboard
-            # Combine style descriptor with story for better image prompts
-            enhanced_story = story
-            if story_style_descriptor:
-                enhanced_story = f"[{story_style_descriptor.upper()} MOOD] {story}"
-            
             storyboard_project = await self.story_generator.generate_storyboard(
                 title, 
-                enhanced_story, 
+                story, 
                 [c["name"] for c in characters],
                 tweak_prompt=tweak_prompt,
                 art_style=art_style
