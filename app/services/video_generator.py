@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 from moviepy.editor import (
     ImageClip,
     concatenate_videoclips,
@@ -108,17 +109,23 @@ class VideoGenerator:
             shadow_blur=0.1,
             highlight_current_word=True,
             word_highlight_color="yellow",
-            line_count=3,  # Show 3 lines to display more words as phrases
-\            position="center",
+            line_count=2,  # Show 3 lines to display more words as phrases
             use_local_whisper=False,
         )
 
-    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue'):
+    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None):
         audio_dir = os.path.join(story_dir, "audio")
         os.makedirs(audio_dir, exist_ok=True)
         video_path = os.path.join(story_dir, "story_video.mp4")
         clips = []
+        
+        # Timing profiling
+        timings = {}
+        start_total = time.time()
+        
         try:
+            # Audio generation phase
+            start_audio = time.time()
             for scene in storyboard_project['storyboards']:
                 # Generate audio for the subtitle
                 audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
@@ -128,6 +135,16 @@ class VideoGenerator:
                     continue
 
                 # Create audio clip
+                audio_clip = AudioFileClip(audio_file)
+            
+            timings['audio_generation'] = time.time() - start_audio
+            
+            # Image processing and clip creation phase
+            start_clips = time.time()
+            for scene in storyboard_project['storyboards']:
+                audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
+                if not os.path.exists(audio_file):
+                    continue
                 audio_clip = AudioFileClip(audio_file)
                 
                 # Download and use the image - detect extension from URL
@@ -202,40 +219,73 @@ class VideoGenerator:
                     logger.error(f"Error processing image for scene {scene['scene_number']}: {str(e)}")
                     continue
 
+            timings['clip_creation'] = time.time() - start_clips
+            
             if not clips:
                 logger.error("No valid clips generated")
                 return None
             
             logger.info(f"Total clips generated: {len(clips)}")
+            logger.info(f"Timing - Audio generation: {timings['audio_generation']:.2f}s, Clip creation: {timings['clip_creation']:.2f}s")
 
             # Add closing screen
+            start_closing = time.time()
             closing_screen = self.create_closing_screen(duration=4)
             if closing_screen:
                 clips.append(closing_screen)
                 logger.info("Added closing screen with logos to video")
+            timings['closing_screen'] = time.time() - start_closing
             
             # Add audio fadeout to last scene clip to prevent audio artifacts
             if len(clips) > 1 and clips[-2].audio is not None:
                 clips[-2] = clips[-2].audio_fadeout(0.3)
             
+            start_concat = time.time()
             final_clip = concatenate_videoclips(clips, method="compose")
+            timings['concatenation'] = time.time() - start_concat
             
             # Use a separate thread for video writing to avoid blocking the event loop
+            # Optimized settings: faster preset, lower fps for speed
+            start_encoding = time.time()
+            if progress_callback:
+                await progress_callback(0.92, "Encoding video...")
+            
             await asyncio.to_thread(
                 final_clip.write_videofile,
                 video_path,
-                fps=24,
+                fps=20,  # Reduced from 24 for faster encoding
                 codec='libx264',
                 audio_codec='aac',
                 audio_bitrate='192k',
                 temp_audiofile='temp-audio.m4a',
                 remove_temp=True,
-                preset='medium',
-                threads=4
+                preset='faster',  # Changed from 'medium' for ~2x speed boost
+                threads=4,
+                logger=None  # Suppress MoviePy's verbose output
             )
+            timings['video_encoding'] = time.time() - start_encoding
+            logger.info(f"Video encoding completed in {timings['video_encoding']:.2f}s")
 
+            start_captions = time.time()
+            if progress_callback:
+                await progress_callback(0.95, "Adding captions...")
+            
             subtitle_video_path = video_path.replace('.mp4', '_subtitle.mp4')
             await self.add_captions(video_path, subtitle_video_path, caption_font)
+            timings['caption_generation'] = time.time() - start_captions
+            
+            timings['total'] = time.time() - start_total
+            
+            # Log detailed timing breakdown
+            logger.info(f"=== Video Generation Timing Breakdown ===")
+            logger.info(f"Audio generation: {timings.get('audio_generation', 0):.2f}s")
+            logger.info(f"Clip creation: {timings.get('clip_creation', 0):.2f}s")
+            logger.info(f"Closing screen: {timings.get('closing_screen', 0):.2f}s")
+            logger.info(f"Concatenation: {timings.get('concatenation', 0):.2f}s")
+            logger.info(f"Video encoding: {timings.get('video_encoding', 0):.2f}s")
+            logger.info(f"Caption generation: {timings.get('caption_generation', 0):.2f}s")
+            logger.info(f"TOTAL TIME: {timings['total']:.2f}s")
+            logger.info(f"========================================")
 
             return subtitle_video_path
         except Exception as e:

@@ -1,7 +1,7 @@
 import re
 from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
-from app.services.image_api import fal_flux_api, replicate_flux_api
+from app.services.image_api import fal_flux_api, replicate_flux_api, runware_flux_api
 from app.core.config import settings
 from app.core.logging import logger
 from app.utils.helpers import create_blank_image
@@ -72,16 +72,29 @@ class ImageGenerator:
 
         return image_url, enhanced_prompt
 
-    async def generate_images(self, task_id: str, storyboard_project: Dict[str, Any], art_style: str, tweak_prompt: str = None) -> List[str]:
+    async def generate_images(self, task_id: str, storyboard_project: Dict[str, Any], art_style: str, tweak_prompt: str = None, progress_callback=None) -> List[str]:
         start_time = time.time()
         tasks = []
 
         characters = storyboard_project.get('characters', [])
+        total_images = len(storyboard_project['storyboards'])
+        
         for i, storyboard in enumerate(storyboard_project['storyboards']):
             task = self.prepare_and_generate_image(task_id, storyboard, characters, art_style, tweak_prompt)
             tasks.append(task)
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Process images with progress updates
+        results = []
+        for i, task_coro in enumerate(tasks):
+            result = await task_coro
+            results.append(result)
+            
+            # Call progress callback after each image completes
+            if progress_callback:
+                await progress_callback(i + 1, total_images)
+        
+        # Keep this for compatibility, but results already populated above
+        # results = await asyncio.gather(*tasks, return_exceptions=True)
 
         image_urls = []
         for i, result in enumerate(results):

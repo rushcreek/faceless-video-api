@@ -27,6 +27,7 @@ class VideoTask(Base):
     story_text = Column(Text)
     status = Column(String, nullable=False)
     error_message = Column(Text)
+    status_message = Column(String, nullable=True)
     progress = Column(Float, default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

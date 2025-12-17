@@ -1,11 +1,16 @@
 import json
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from app.core.logging import logger
 import os
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file='.env',
+        env_file_encoding='utf-8',
+        extra='allow'
+    )
     PROJECT_NAME: str = "Faceless Video Generation API"
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -22,6 +27,7 @@ class Settings(BaseSettings):
     SECRET_KEY: str | None = None
     FAL_KEY: str | None = None
     CARTESIA_API_KEY: str | None = None
+    RUNWARE_API_KEY: str | None = None
 
     # Admin user settings
     ADMIN_USERNAME: str | None = None
@@ -40,6 +46,7 @@ class Settings(BaseSettings):
     fal_flux_dev_api: dict | None = None
     fal_flux_schnell_api: dict | None = None
     replicate_flux_api: dict | None = None
+    runware_flux_api: dict | None = None
     tts: dict | None = None
     voices: list | None = None
     languages: list | None = None
@@ -49,6 +56,7 @@ class Settings(BaseSettings):
     azure_api_version: str | None = None
     use_fal_flux: bool | None = None
     use_fal_flux_dev: bool | None = None
+    use_runware_flux: bool | None = None
     use_azure_openai: bool | None = None
 
     R2_ENDPOINT: str | None = None
@@ -60,7 +68,7 @@ class Settings(BaseSettings):
     def set_story_dir(cls, v, info):
         return v or os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), "data")
 
-    @field_validator('story_limit_short', 'story_limit_long', 'storyboard', 'openai', 'fal_flux_dev_api', 'fal_flux_schnell_api', 'replicate_flux_api', 'tts', 'voices', 'languages', 'art_styles', 'story_style_descriptors', 'caption_fonts', 'use_fal_flux', 'use_fal_flux_dev', 'use_azure_openai', 'azure_api_version', mode='before')
+    @field_validator('story_limit_short', 'story_limit_long', 'storyboard', 'openai', 'fal_flux_dev_api', 'fal_flux_schnell_api', 'replicate_flux_api', 'runware_flux_api', 'tts', 'voices', 'languages', 'art_styles', 'story_style_descriptors', 'caption_fonts', 'use_fal_flux', 'use_fal_flux_dev', 'use_runware_flux', 'use_azure_openai', 'azure_api_version', mode='before')
     def load_json_config(cls, v, info):
         if v is None or (isinstance(v, (str, dict)) and not v):
             config_path = os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), 'config.json')
@@ -70,11 +78,6 @@ class Settings(BaseSettings):
             logger.info(f"Loaded value for {info.field_name}: {loaded_value}")
             return loaded_value
         return v
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = 'utf-8'
-        extra = 'allow'  # Add this line to allow extra fields
 
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 365 * 10  # 10 years
 

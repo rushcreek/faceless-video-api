@@ -432,6 +432,24 @@ function updateTaskStatusOnly(task) {
         progressFill.textContent = `${progress}%`;
     }
     
+    // Update status message
+    let statusMsgEl = container.querySelector('.status-message');
+    if (task.status_message) {
+        if (!statusMsgEl) {
+            // Create status message element if it doesn't exist
+            statusMsgEl = document.createElement('p');
+            statusMsgEl.className = 'status-message';
+            statusMsgEl.style.cssText = 'color: #666; font-style: italic; margin-top: 10px;';
+            const progressBar = container.querySelector('.progress-bar');
+            if (progressBar) {
+                progressBar.parentNode.insertBefore(statusMsgEl, progressBar.nextSibling);
+            }
+        }
+        statusMsgEl.textContent = task.status_message;
+    } else if (statusMsgEl) {
+        statusMsgEl.remove();
+    }
+    
     // Update download link if completed
     if (task.status === 'completed' && task.url) {
         const videoLink = container.querySelector('p > strong');
@@ -468,6 +486,11 @@ function displayFullTaskStatus(task) {
                 </div>
             </div>
     `;
+    
+    // Add status message if present
+    if (task.status_message) {
+        html += `<p class="status-message" style="color: #666; font-style: italic; margin-top: 10px;">${task.status_message}</p>`;
+    }
     
     if (task.story_description) {
         html += `<p><strong>Description:</strong> ${task.story_description}</p>`;
