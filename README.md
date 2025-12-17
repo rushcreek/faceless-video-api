@@ -134,7 +134,9 @@ pip install -r requirements.txt
 
 Copy the environment template and configure the variables:
 ```bash
-cp .env.example .env
+cp .env.example .env  # Linux/Mac
+# or
+copy .env.example .env  # Windows
 ```
 
 ## Database Setup
