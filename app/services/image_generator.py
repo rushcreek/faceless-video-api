@@ -1,7 +1,7 @@
 import re
 from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
-from app.services.image_api import fal_flux_api, replicate_flux_api, runware_flux_api
+from app.services.image_api import fal_flux_api, replicate_flux_api, runware_flux_api, runware_flux_batch_api
 from app.core.config import settings
 from app.core.logging import logger
 from app.utils.helpers import create_blank_image
@@ -12,7 +12,56 @@ import time
 
 class ImageGenerator:
     def __init__(self, image_generator_func: Callable[[str], Optional[str]] = None):
-        self.image_generator_func = image_generator_func 
+        self.image_generator_func = image_generator_func
+    
+    def prepare_prompt(
+        self,
+        storyboard: Dict[str, Any],
+        characters: List[Dict[str, Any]],
+        style: str,
+        tweak_prompt: str = None
+    ) -> str:
+        """Prepare enhanced prompt without generating image"""
+        # Construct the prompt
+        prompt = storyboard['description']
+        camera_info = f"Camera: {storyboard['camera']['angle']}, {storyboard['camera']['composition_type']}, {storyboard['camera']['shot_size']}"
+        lighting_info = f"Lighting: {storyboard['lighting']}"
+        
+        enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
+        
+        # Add tweak prompt if provided
+        if tweak_prompt:
+            enhanced_prompt += f" | {tweak_prompt}"
+        
+        # Add character descriptions
+        character_descriptions = []
+      
+        for character in characters:
+            name_forms = [
+                character['name'].split()[0],  # First name
+                character['name'],  # Full name
+                f"{character['name'].split()[0]}'s",  # First name possessive
+                f"{character['name']}'s",  # Full name possessive
+                f"{character['name'].split()[0]}'",  # First name possessive (alternative)
+                f"{character['name']}'",  # Full name possessive (alternative)
+            ]
+            
+            # Check if any non-bracketed form of the name is in the prompt
+            if any(
+                form.lower() in prompt.lower() and 
+                f"{{{{{form.lower()}}}}}" not in prompt.lower()
+                for form in name_forms
+            ):
+                desc = f"{character['name']}'s appearance: {character['ethnicity']} {character['gender']} {character['age']} {character['facial_features']} {character['body_type']} {character['hair_style']} {character['accessories']}"
+                character_descriptions.append(desc)
+
+        if character_descriptions:
+            enhanced_prompt += " | " + " | ".join(character_descriptions)
+        
+        # Remove all bracketed content
+        enhanced_prompt = re.sub(r'\{\{.*?\}\}', '', enhanced_prompt)
+        
+        return enhanced_prompt 
 
     async def prepare_and_generate_image(
         self,
@@ -74,63 +123,104 @@ class ImageGenerator:
 
     async def generate_images(self, task_id: str, storyboard_project: Dict[str, Any], art_style: str, tweak_prompt: str = None, progress_callback=None) -> List[str]:
         start_time = time.time()
-        tasks = []
 
         characters = storyboard_project.get('characters', [])
         total_images = len(storyboard_project['storyboards'])
         
-        for i, storyboard in enumerate(storyboard_project['storyboards']):
-            task = self.prepare_and_generate_image(task_id, storyboard, characters, art_style, tweak_prompt)
-            tasks.append(task)
-
-        # Process images with progress updates
-        results = []
-        for i, task_coro in enumerate(tasks):
-            result = await task_coro
-            results.append(result)
+        # Check if using Runware for parallel batch generation
+        if settings.use_runware_flux:
+            logger.info(f"🚀 Using Runware PARALLEL batch API for {total_images} images")
             
-            # Call progress callback after each image completes
-            if progress_callback:
-                await progress_callback(i + 1, total_images)
-        
-        # Keep this for compatibility, but results already populated above
-        # results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        image_urls = []
-        for i, result in enumerate(results):
-            if isinstance(result, tuple) and len(result) == 2:
-                image_url, enhanced_prompt = result
-                if image_url is not None:
+            # Prepare all prompts first
+            enhanced_prompts = []
+            for storyboard in storyboard_project['storyboards']:
+                enhanced_prompt = self.prepare_prompt(storyboard, characters, art_style, tweak_prompt)
+                enhanced_prompts.append(enhanced_prompt)
+                logger.debug(f"Prepared prompt for scene {storyboard.get('scene_number')}: {enhanced_prompt[:100]}...")
+            
+            # Generate ALL images in parallel
+            image_urls = await runware_flux_batch_api(task_id, enhanced_prompts)
+            
+            # Process results and update progress
+            for i, (image_url, enhanced_prompt) in enumerate(zip(image_urls, enhanced_prompts)):
+                if image_url:
                     storyboard_project['storyboards'][i]['image'] = image_url
                     storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
                     storyboard_project['storyboards'][i]['error_message'] = None
-                    image_urls.append(image_url)
-                    logger.info(f"Image {i+1} generated successfully for task {task_id}: {image_url}")
+                    logger.info(f"✅ Image {i+1} generated successfully: {image_url}")
                 else:
-                    error_message = "Image generation failed: image_url is None"
-                    logger.error(f"Error generating image {i+1} for task {task_id}: {error_message}")
+                    error_message = "Image generation failed: returned None"
+                    logger.error(f"❌ Error generating image {i+1}")
                     storyboard_project['storyboards'][i]['image'] = None
                     storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
                     storyboard_project['storyboards'][i]['error_message'] = error_message
-                    image_urls.append(None)
-            else:
-                if isinstance(result, Exception):
-                    error_message = str(result)
-                else:
-                    error_message = f"Unexpected result: {result}"
                 
-                logger.error(f"Error generating image {i+1} for task {task_id}: {error_message}")
-                storyboard_project['storyboards'][i]['image'] = None
-                storyboard_project['storyboards'][i]['enhanced_prompt'] = None
-                storyboard_project['storyboards'][i]['error_message'] = error_message
-                image_urls.append(None)
+                # Call progress callback after each image result is processed
+                if progress_callback:
+                    await progress_callback(i + 1, total_images)
+            
+            end_time = time.time()
+            total_time = end_time - start_time
+            successful = sum(1 for url in image_urls if url)
+            logger.info(f"🎉 Parallel generation completed: {successful}/{total_images} successful in {total_time:.2f}s")
+            logger.info(f"⚡ Average time per image: {total_time/total_images:.2f}s")
+            
+            return image_urls
+        
+        # Fallback to sequential generation for Fal/Replicate
+        else:
+            logger.info(f"Using sequential generation for {total_images} images")
+            tasks = []
+            
+            for i, storyboard in enumerate(storyboard_project['storyboards']):
+                task = self.prepare_and_generate_image(task_id, storyboard, characters, art_style, tweak_prompt)
+                tasks.append(task)
 
-        end_time = time.time()
-        total_time = end_time - start_time
-        logger.info(f"generate_images completed for task {task_id} in {total_time:.2f} seconds")
-        logger.info(f"Total images generated for task {task_id}: {len(image_urls)}")
+            # Process images with progress updates
+            results = []
+            for i, task_coro in enumerate(tasks):
+                result = await task_coro
+                results.append(result)
+                
+                # Call progress callback after each image completes
+                if progress_callback:
+                    await progress_callback(i + 1, total_images)
+            
+            image_urls = []
+            for i, result in enumerate(results):
+                if isinstance(result, tuple) and len(result) == 2:
+                    image_url, enhanced_prompt = result
+                    if image_url is not None:
+                        storyboard_project['storyboards'][i]['image'] = image_url
+                        storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
+                        storyboard_project['storyboards'][i]['error_message'] = None
+                        image_urls.append(image_url)
+                        logger.info(f"Image {i+1} generated successfully for task {task_id}: {image_url}")
+                    else:
+                        error_message = "Image generation failed: image_url is None"
+                        logger.error(f"Error generating image {i+1} for task {task_id}: {error_message}")
+                        storyboard_project['storyboards'][i]['image'] = None
+                        storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
+                        storyboard_project['storyboards'][i]['error_message'] = error_message
+                        image_urls.append(None)
+                else:
+                    if isinstance(result, Exception):
+                        error_message = str(result)
+                    else:
+                        error_message = f"Unexpected result: {result}"
+                    
+                    logger.error(f"Error generating image {i+1} for task {task_id}: {error_message}")
+                    storyboard_project['storyboards'][i]['image'] = None
+                    storyboard_project['storyboards'][i]['enhanced_prompt'] = None
+                    storyboard_project['storyboards'][i]['error_message'] = error_message
+                    image_urls.append(None)
 
-        return image_urls
+            end_time = time.time()
+            total_time = end_time - start_time
+            logger.info(f"generate_images completed for task {task_id} in {total_time:.2f} seconds")
+            logger.info(f"Total images generated for task {task_id}: {len(image_urls)}")
+
+            return image_urls
 
     async def regenerate_image(self, task_id: str, image_id: str) -> Optional[str]:
         image = await Image.get(image_id)
