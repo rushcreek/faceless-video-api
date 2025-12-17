@@ -228,6 +228,7 @@ class VideoGenerator:
             line_count=2,  # Show 2-3 lines to display more words as phrases
             segments=custom_segments,  # Pass custom segments to preserve punctuation
             use_local_whisper=False,
+            padding=100
         )
 
     async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None):

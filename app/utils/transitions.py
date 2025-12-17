@@ -40,7 +40,7 @@ def shake(clip, effect_duration=1, max_offset=5):
     return clip.fl(shake_effect)
 
 
-def zoom(clip, mode="in", position="center", speed=3, min_duration=5.0, max_zoom_ratio=0.3):
+def zoom(clip, mode="in", position="center", speed=1, min_duration=5.0, max_zoom_ratio=0.15):
     """
     Apply zoom effect with duration-based moderation.
     
@@ -48,9 +48,9 @@ def zoom(clip, mode="in", position="center", speed=3, min_duration=5.0, max_zoom
         clip: The video clip to apply zoom to
         mode: "in" or "out" for zoom direction
         position: Where to zoom from/to (center, left, right, etc.)
-        speed: Base zoom speed multiplier (default: 3)
+        speed: Base zoom speed multiplier (default: 1)
         min_duration: Duration threshold below which zoom is moderated (default: 5.0 seconds)
-        max_zoom_ratio: Maximum zoom ratio for full-duration clips (default: 0.3 = 30% zoom)
+        max_zoom_ratio: Maximum zoom ratio for full-duration clips (default: 0.15 = 15% zoom)
     """
     if hasattr(clip, "fps") and clip.fps is not None:
         fps = clip.fps

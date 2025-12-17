@@ -301,17 +301,22 @@ Return ONLY the JSON object, no other text."""
             try:
                 storyboard_data = json.loads(json_str)
                 
-                # Generate video prompts for each scene
-                logger.info("Generating video prompts for storyboard scenes...")
-                if storyboard_data.get("storyboards"):
-                    for scene in storyboard_data["storyboards"]:
-                        scene_description = scene.get("description", "")
-                        if scene_description:
-                            logger.info(f"Generating video prompt for scene {scene.get('scene_number', 'unknown')}")
-                            video_request = await self.generate_video_prompt(scene_description, art_style)
-                            scene["video_generation_request"] = video_request
-                        else:
-                            scene["video_generation_request"] = self._create_default_video_request()
+                # Generate video prompts for each scene (non-blocking)
+                # TEMPORARILY DISABLED: Too many API calls causing timeouts
+                # logger.info("Generating video prompts for storyboard scenes...")
+                # if storyboard_data.get("storyboards"):
+                #     for scene in storyboard_data["storyboards"]:
+                #         scene_description = scene.get("description", "")
+                #         try:
+                #             if scene_description:
+                #                 logger.info(f"Generating video prompt for scene {scene.get('scene_number', 'unknown')}")
+                #                 video_request = await self.generate_video_prompt(scene_description, art_style)
+                #                 scene["video_generation_request"] = video_request
+                #             else:
+                #                 scene["video_generation_request"] = self._create_default_video_request()
+                #         except Exception as e:
+                #             logger.warning(f"Failed to generate video prompt for scene {scene.get('scene_number', 'unknown')}: {e}")
+                #             scene["video_generation_request"] = self._create_default_video_request()
                 
                 return storyboard_data
             except json.JSONDecodeError as e:
