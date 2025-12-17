@@ -372,6 +372,9 @@ class VideoGenerator:
                     
                     # Combine image, text, and audio
                     video_clip = image_clip.set_audio(audio_clip)
+                    
+                    # Add audio fade in/out to prevent artifacts between clips
+                    video_clip = video_clip.audio_fadein(0.1).audio_fadeout(0.1)
 
                     # Apply transition effect
                     transition_type = scene['transition_type']
