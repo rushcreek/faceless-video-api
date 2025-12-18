@@ -242,13 +242,31 @@ class VideoGenerator:
             raise
     
     def _add_captions_sync(self, video_file, output_file, font_path, segments):
-        """Synchronous caption generation using MoviePy with 2-line captions and word highlighting"""
-        from moviepy.editor import VideoFileClip, CompositeVideoClip, TextClip
+        """Synchronous caption generation using shortcap library"""
+        from shortcap import add_captions_to_video
         
-        logger.info(f"📝 Loading video file...")
-        video = VideoFileClip(video_file)
+        logger.info(f"📝 Adding captions using shortcap...")
         
-        # Collect all words with timing
+        try:
+            # Use shortcap with the segments data
+            add_captions_to_video(
+                video_file=video_file,
+                output_file=output_file,
+                segments=segments,
+                font=font_path,
+                fontsize=70,
+                color='yellow',
+                stroke_color='black',
+                stroke_width=2
+            )
+            
+            logger.info("✅ Shortcap caption generation complete!")
+            
+        except Exception as e:
+            logger.error(f"Error adding captions with shortcap: {e}")
+            raise
+
+    async def create_video_from_storyboard(self, storyboard_project, task_id: str):
         all_words = []
         for segment in segments:
             words = segment.get('words', [])
