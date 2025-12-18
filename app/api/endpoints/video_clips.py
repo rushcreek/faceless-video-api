@@ -161,6 +161,8 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
     Uses actual audio_duration for each scene instead of fixed 2 seconds.
     """
     
+    logger.info(f"🎬 STARTING VIDEO CLIP GENERATION for task {task_id}")
+    
     try:
         async with async_session() as session:
             # Get ALL scenes ordered by scene_number
@@ -176,7 +178,7 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                 logger.warning(f"No scenes found for task {task_id}")
                 return
             
-            logger.info(f"Task {task_id} has {total_scenes} scenes - selecting first, last, and interesting middle")
+            logger.info(f"📊 Task {task_id} has {total_scenes} scenes - selecting first, last, and interesting middle")
             
             # Select scenes to animate
             scenes_to_animate = []

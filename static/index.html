@@ -107,6 +107,17 @@
                 </div>
             </div>
 
+            <!-- Completed Tasks Panel -->
+            <div class="completed-tasks-panel">
+                <div class="panel-header">
+                    <h3>✅ Completed Tasks</h3>
+                    <button class="btn btn-secondary btn-small" onclick="refreshRunningTasks()">🔄 Refresh</button>
+                </div>
+                <div id="completed-tasks-list" class="completed-tasks-list">
+                    <p class="loading-message">Loading tasks...</p>
+                </div>
+            </div>
+
             <!-- Task Status Lookup -->
             <div class="task-lookup-section">
                 <h3>Look up Task by ID</h3>

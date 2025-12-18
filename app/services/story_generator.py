@@ -185,11 +185,11 @@ Return ONLY the JSON object, no other text."""
             {art_style_guidance}
 
             IMPORTANT TERMINOLOGY RULES:
-            - NEVER use the words "animate", "animated", "animation", "stylized", "illustration", or "illustrated" in your descriptions
+            - NEVER use the words "animate", "animated", "animation", "stylized", "illustration", "illustrated", or "depicted" in your descriptions
             - Instead, rely on the specified art style to convey non-realistic character styles
-            - Use terms like "rendered", "depicted", "portrayed", or "designed"
+            - Use terms like "rendered", "portrayed", or "designed"
             - For character descriptions, focus on visual appearance, not animation state
-            - Example: Instead of "animated character", "stylized character", or "illustrated character", use "{art_style if art_style else 'rendered'} character" or "depicted character"
+            - Example: Instead of "animated character", "stylized character", "illustrated character", or "depicted character", use "{art_style if art_style else 'rendered'} character"
 
             First, create an opening scene:
             1. Scene Number: 1

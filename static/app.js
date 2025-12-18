@@ -449,6 +449,14 @@ function updateTaskStatusOnly(task) {
         const progress = (task.progress * 100).toFixed(0);
         progressFill.style.width = `${progress}%`;
         progressFill.textContent = `${progress}%`;
+        
+        // Update progress bar color based on status
+        progressFill.classList.remove('completed', 'failed');
+        if (task.status === 'completed') {
+            progressFill.classList.add('completed');
+        } else if (task.status === 'failed') {
+            progressFill.classList.add('failed');
+        }
     }
     
     // Update status message
@@ -519,9 +527,12 @@ function displayFullTaskStatus(task) {
         html += `<p><strong>Video:</strong> <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a></p>`;
     }
     
+    // Add status class to progress bar
+    const progressClass = task.status === 'completed' ? 'completed' : (task.status === 'failed' ? 'failed' : '');
+    
     html += `
             <div class="progress-bar">
-                <div class="progress-fill" style="width: ${(task.progress * 100).toFixed(0)}%">
+                <div class="progress-fill ${progressClass}" style="width: ${(task.progress * 100).toFixed(0)}%">
                     ${(task.progress * 100).toFixed(0)}%
                 </div>
             </div>
@@ -801,7 +812,8 @@ async function refreshRunningTasks() {
 }
 
 function displayRunningTasks(tasks) {
-    const listContainer = document.getElementById('running-tasks-list');
+    const activeListContainer = document.getElementById('running-tasks-list');
+    const completedListContainer = document.getElementById('completed-tasks-list');
     
     // Filter active tasks (not completed or failed)
     const activeTasks = tasks.filter(task => 
@@ -810,37 +822,70 @@ function displayRunningTasks(tasks) {
         task.status === 'waiting_for_clips'
     );
     
+    // Filter completed and failed tasks
+    const completedTasks = tasks.filter(task => 
+        task.status === 'completed' || 
+        task.status === 'failed'
+    );
+    
+    // Display active tasks
     if (activeTasks.length === 0) {
-        listContainer.innerHTML = '<div class="no-tasks-message">No active tasks</div>';
-        return;
+        activeListContainer.innerHTML = '<div class="no-tasks-message">No active tasks</div>';
+    } else {
+        activeListContainer.innerHTML = activeTasks.map(task => {
+            const title = task.story_title || task.custom_title || 'Untitled Video';
+            const progress = Math.round((task.progress || 0) * 100);
+            const statusMessage = task.status_message || '';
+            const createdAt = new Date(task.created_at).toLocaleString();
+            
+            return `
+                <div class="task-card">
+                    <div class="task-info">
+                        <div class="task-title">${title}</div>
+                        <div class="task-id">ID: ${task.task_id}</div>
+                        <div class="task-meta">
+                            <span class="status-badge ${task.status}">${task.status.replace('_', ' ')}</span>
+                            <span class="task-progress">${progress}%</span>
+                            ${statusMessage ? `<span class="task-message">${statusMessage}</span>` : ''}
+                        </div>
+                        <div class="task-id" style="font-size: 0.75em; color: #999;">Created: ${createdAt}</div>
+                    </div>
+                    <div class="task-actions">
+                        <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
+                        <button class="btn-kill" onclick="confirmCancelTask('${task.task_id}')">Kill</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
     }
     
-    listContainer.innerHTML = activeTasks.map(task => {
-        // Use story_title from the task, fallback to custom_title, then 'Untitled Video'
-        const title = task.story_title || task.custom_title || 'Untitled Video';
-        const progress = Math.round((task.progress || 0) * 100);
-        const statusMessage = task.status_message || '';
-        const createdAt = new Date(task.created_at).toLocaleString();
-        
-        return `
-            <div class="task-card">
-                <div class="task-info">
-                    <div class="task-title">${title}</div>
-                    <div class="task-id">ID: ${task.task_id}</div>
-                    <div class="task-meta">
-                        <span class="status-badge ${task.status}">${task.status.replace('_', ' ')}</span>
-                        <span class="task-progress">${progress}%</span>
-                        ${statusMessage ? `<span class="task-message">${statusMessage}</span>` : ''}
+    // Display completed tasks
+    if (completedTasks.length === 0) {
+        completedListContainer.innerHTML = '<div class="no-tasks-message">No completed tasks</div>';
+    } else {
+        completedListContainer.innerHTML = completedTasks.map(task => {
+            const title = task.story_title || task.custom_title || 'Untitled Video';
+            const createdAt = new Date(task.created_at).toLocaleString();
+            const completedAt = task.updated_at ? new Date(task.updated_at).toLocaleString() : createdAt;
+            
+            return `
+                <div class="task-card">
+                    <div class="task-info">
+                        <div class="task-title">${title}</div>
+                        <div class="task-id">ID: ${task.task_id}</div>
+                        <div class="task-meta">
+                            <span class="status-badge ${task.status}">${task.status}</span>
+                        </div>
+                        <div class="task-id" style="font-size: 0.75em; color: #999;">Completed: ${completedAt}</div>
                     </div>
-                    <div class="task-id" style="font-size: 0.75em; color: #999;">Created: ${createdAt}</div>
+                    <div class="task-actions">
+                        <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
+                        <button class="btn-delete" onclick="confirmDeleteTask('${task.task_id}')">Delete</button>
+                    </div>
                 </div>
-                <div class="task-actions">
-                    <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
-                    <button class="btn-kill" onclick="confirmCancelTask('${task.task_id}')">Kill</button>
-                </div>
-            </div>
-        `;
-    }).join('');
+            `;
+        }).join('');
+    }
 }
 
 function viewTaskDetails(taskId) {
@@ -848,6 +893,52 @@ function viewTaskDetails(taskId) {
     document.getElementById('status_task_id').value = taskId;
     // Fetch the task status
     fetchTaskStatus();
+    // Scroll to the status result area
+    setTimeout(() => {
+        const statusResult = document.getElementById('status-result');
+        if (statusResult) {
+            statusResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, 100);
+}
+
+async function confirmDeleteTask(taskId) {
+    if (!confirm(`Are you sure you want to permanently delete task ${taskId.substring(0, 8)}...? This cannot be undone.`)) {
+        return;
+    }
+    
+    await deleteTaskFromPanel(taskId);
+}
+
+async function deleteTaskFromPanel(taskId) {
+    try {
+        const token = await getAuthToken();
+        if (!token) {
+            alert('Authentication required');
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Task deleted:', result);
+            // Refresh the task list
+            await refreshRunningTasks();
+        } else {
+            const error = await response.json();
+            alert(`Failed to delete task: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        alert('Error deleting task. Check console for details.');
+    }
 }
 
 async function confirmCancelTask(taskId) {

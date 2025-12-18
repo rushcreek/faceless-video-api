@@ -246,7 +246,7 @@ class VideoGenerator:
             raise
     
     def _add_captions_moviepy_sync(self, video_file, output_file, font_path, segments):
-        """Synchronous MoviePy caption generation - simple and reliable"""
+        """2-line captions: render each word individually - white when not active, yellow when speaking"""
         from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
         
         logger.info("Loading video file...")
@@ -265,7 +265,7 @@ class VideoGenerator:
                         'end': word_data.get('end', 0)
                     })
         
-        logger.info(f"Processing {len(all_words)} words for captions...")
+        logger.info(f"Processing {len(all_words)} words for 2-line captions with highlighting...")
         
         if not all_words:
             logger.warning("No words found in segments")
@@ -273,31 +273,146 @@ class VideoGenerator:
             video.close()
             return
         
-        # Create text clips for each word (yellow highlight style)
-        text_clips = []
-        for word_data in all_words:
-            try:
-                word_clip = TextClip(
-                    word_data['text'].upper(),
-                    fontsize=80,
-                    color='yellow',
-                    font=font_path,
-                    stroke_color='black',
-                    stroke_width=3,
-                    method='label'
-                ).set_start(word_data['start']).set_duration(word_data['end'] - word_data['start'])
-                
-                # Position at bottom center
-                word_clip = word_clip.set_position(('center', int(video.h * 0.75)))
-                text_clips.append(word_clip)
-                
-            except Exception as e:
-                logger.warning(f"Failed to create caption for '{word_data['text']}': {e}")
+        # Group words into 2-line phrases (roughly 8 words per phrase)
+        words_per_phrase = 8
+        phrases = []
         
-        logger.info(f"Created {len(text_clips)} caption clips, compositing...")
+        for i in range(0, len(all_words), words_per_phrase):
+            phrase_words = all_words[i:i + words_per_phrase]
+            if phrase_words:
+                # Split into 2 lines (half on each line)
+                mid_point = len(phrase_words) // 2
+                line1_words = phrase_words[:mid_point]
+                line2_words = phrase_words[mid_point:]
+                
+                phrases.append({
+                    'line1': line1_words,
+                    'line2': line2_words,
+                    'start': phrase_words[0]['start'],
+                    'end': phrase_words[-1]['end'],
+                    'all_words': phrase_words
+                })
         
-        # Composite video with captions
-        final_video = CompositeVideoClip([video] + text_clips)
+        logger.info(f"Created {len(phrases)} two-line phrases")
+        
+        # FIXED APPROACH: Persistent white base + yellow overlays for consistency
+        caption_clips = []
+        caption_y = int(video.h * 0.80)
+        line_spacing = 90
+        shadow_offset = 3  # Shadow offset in pixels
+        
+        for phrase_idx, phrase in enumerate(phrases):
+            line1_text = ' '.join([w['text'] for w in phrase['line1']])
+            line2_text = ' '.join([w['text'] for w in phrase['line2']])
+            
+            # Step 0: Create shadow layers (black text offset slightly)
+            if line1_text:
+                line1_shadow_clips = []
+                x_offset = 0
+                for w in phrase['line1']:
+                    shadow_clip = TextClip(w['text'], fontsize=80, color='black', font=font_path, method='label')
+                    positioned = shadow_clip.set_position((x_offset, 0))
+                    line1_shadow_clips.append(positioned)
+                    x_offset += shadow_clip.w + 10
+                
+                line1_width = x_offset - 10
+                line1_shadow = CompositeVideoClip(line1_shadow_clips, size=(line1_width, 100))
+                line1_x = (video.w - line1_width) // 2
+                line1_shadow = line1_shadow.set_position((line1_x + shadow_offset, caption_y + shadow_offset))
+                line1_shadow = line1_shadow.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line1_shadow)
+            
+            if line2_text:
+                line2_shadow_clips = []
+                x_offset = 0
+                for w in phrase['line2']:
+                    shadow_clip = TextClip(w['text'], fontsize=80, color='black', font=font_path, method='label')
+                    positioned = shadow_clip.set_position((x_offset, 0))
+                    line2_shadow_clips.append(positioned)
+                    x_offset += shadow_clip.w + 10
+                
+                line2_width = x_offset - 10
+                line2_shadow = CompositeVideoClip(line2_shadow_clips, size=(line2_width, 100))
+                line2_x = (video.w - line2_width) // 2
+                line2_shadow = line2_shadow.set_position((line2_x + shadow_offset, caption_y + line_spacing + shadow_offset))
+                line2_shadow = line2_shadow.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line2_shadow)
+            
+            # Step 1: Create white base layers that persist for entire phrase (prevents disappearing)
+            if line1_text:
+                # Build line 1 as composite to get consistent positioning
+                line1_word_clips = []
+                x_offset = 0
+                for w in phrase['line1']:
+                    word_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                    positioned = word_clip.set_position((x_offset, 0))
+                    line1_word_clips.append(positioned)
+                    x_offset += word_clip.w + 10
+                
+                line1_width = x_offset - 10
+                line1_base = CompositeVideoClip(line1_word_clips, size=(line1_width, 100))
+                line1_x = (video.w - line1_width) // 2
+                line1_base = line1_base.set_position((line1_x, caption_y))
+                line1_base = line1_base.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line1_base)
+            
+            if line2_text:
+                # Build line 2 as composite with SAME positioning logic
+                line2_word_clips = []
+                x_offset = 0
+                for w in phrase['line2']:
+                    word_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                    positioned = word_clip.set_position((x_offset, 0))
+                    line2_word_clips.append(positioned)
+                    x_offset += word_clip.w + 10
+                
+                line2_width = x_offset - 10
+                line2_base = CompositeVideoClip(line2_word_clips, size=(line2_width, 100))
+                line2_x = (video.w - line2_width) // 2
+                line2_base = line2_base.set_position((line2_x, caption_y + line_spacing))
+                line2_base = line2_base.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line2_base)
+            
+            # Step 2: Add yellow overlays for each word at its specific timing
+            for word_idx, current_word in enumerate(phrase['all_words']):
+                if word_idx < len(phrase['line1']):
+                    # Word is on line 1
+                    x_offset = 0
+                    for i, w in enumerate(phrase['line1']):
+                        if i == word_idx:
+                            # Create yellow overlay for this word
+                            yellow_clip = TextClip(w['text'], fontsize=80, color='yellow', font=font_path, method='label')
+                            yellow_x = line1_x + x_offset
+                            yellow_clip = yellow_clip.set_position((yellow_x, caption_y))
+                            yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
+                            caption_clips.append(yellow_clip)
+                            break
+                        else:
+                            # Calculate offset to find position
+                            temp_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                            x_offset += temp_clip.w + 10
+                            temp_clip.close()
+                else:
+                    # Word is on line 2
+                    word_pos_in_line2 = word_idx - len(phrase['line1'])
+                    x_offset = 0
+                    for i, w in enumerate(phrase['line2']):
+                        if i == word_pos_in_line2:
+                            yellow_clip = TextClip(w['text'], fontsize=80, color='yellow', font=font_path, method='label')
+                            yellow_x = line2_x + x_offset
+                            yellow_clip = yellow_clip.set_position((yellow_x, caption_y + line_spacing))
+                            yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
+                            caption_clips.append(yellow_clip)
+                            break
+                        else:
+                            temp_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                            x_offset += temp_clip.w + 10
+                            temp_clip.close()
+        
+        logger.info(f"Created {len(caption_clips)} caption elements (base + overlays), compositing...")
+        
+        # Composite video with all captions
+        final_video = CompositeVideoClip([video] + caption_clips)
         
         logger.info("Writing final video with captions...")
         final_video.write_videofile(
@@ -310,11 +425,15 @@ class VideoGenerator:
             logger=None  # Suppress MoviePy's verbose output
         )
         
-        # Cleanup
+        # Cleanup - close all clips to free resources
+        logger.info("Cleaning up clip resources...")
+        for clip in caption_clips:
+            try:
+                clip.close()
+            except:
+                pass
         video.close()
         final_video.close()
-        for clip in text_clips:
-            clip.close()
         
         logger.info("✅ MoviePy caption generation complete!")
     
@@ -579,10 +698,11 @@ class VideoGenerator:
                 
                 # Check if this scene has a video clip (animated) or just static image
                 video_clip_url = scene.get('video_clip_url')
+                logger.debug(f"Scene {scene['scene_number']} video_clip_url: {video_clip_url}")
                 
                 if video_clip_url:
                     # Use animated video clip
-                    logger.info(f"Using video clip for scene {scene['scene_number']}: {video_clip_url}")
+                    logger.info(f"🎬 Using video clip for scene {scene['scene_number']}: {video_clip_url}")
                     video_ext = '.mp4'
                     scene_video_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{video_ext}")
                     downloaded_video = await download_image(video_clip_url, scene_video_path)  # Reuse download function

@@ -275,6 +275,22 @@ textarea {
     position: relative;
 }
 
+/* Completed state - solid green */
+.progress-fill.completed {
+    background: #4CAF50;
+}
+
+/* Failed state - solid red */
+.progress-fill.failed {
+    background: #f44336;
+}
+
+/* Remove animation for completed and failed */
+.progress-fill.completed::before,
+.progress-fill.failed::before {
+    display: none;
+}
+
 /* Animated shimmer effect while waiting */
 .progress-fill::before {
     content: '';
@@ -427,6 +443,41 @@ textarea {
     gap: 10px;
 }
 
+.completed-tasks-panel {
+    background: #fafafa;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 30px;
+    border: 1px solid #e0e0e0;
+}
+
+.completed-tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.completed-tasks-list::-webkit-scrollbar {
+    width: 8px;
+}
+
+.completed-tasks-list::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.completed-tasks-list::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.completed-tasks-list::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
 .task-card {
     background: white;
     border-radius: 8px;
@@ -518,6 +569,23 @@ textarea {
 
 .btn-view:hover {
     background: #764ba2;
+}
+
+.btn-delete {
+    background: #ff9800;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-weight: 600;
+    transition: background 0.3s;
+    white-space: nowrap;
+}
+
+.btn-delete:hover {
+    background: #f57c00;
 }
 
 .loading-message {

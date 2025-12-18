@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 router = APIRouter()
 video_task_processor = VideoTaskProcessor()
+logger = logging.getLogger(__name__)
 
 @router.get("/video/config")
 async def get_video_config():
@@ -156,6 +157,44 @@ async def cancel_task(task_id: str, current_user: dict = Depends(get_current_use
         "status": "failed",
         "message": f"Task cancelled successfully. {cancelled_clips} video clips stopped.",
         "clips_cancelled": cancelled_clips
+    }
+
+@router.delete("/video/tasks/{task_id}")
+async def delete_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Delete a completed or failed video generation task from the database.
+    This will permanently remove the task and all associated images.
+    
+    Note: Only completed or failed tasks can be deleted.
+    """
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Only allow deletion of completed or failed tasks
+    if task.status not in ["completed", "failed"]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Only completed or failed tasks can be deleted. Cancel active tasks first."
+        )
+    
+    # Delete associated images first
+    from app.models.image import Image
+    images = await Image.list_by_task(task_id)
+    for image in images:
+        await Image.delete(image.id)
+    
+    # Delete the task
+    success = await VideoTask.delete(task_id)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete task")
+    
+    logger.info(f"Task {task_id} and {len(images)} associated images deleted by user")
+    
+    return {
+        "task_id": task_id,
+        "message": f"Task and {len(images)} associated images deleted successfully"
     }
 
 @router.get("/video/tasks")

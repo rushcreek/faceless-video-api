@@ -68,7 +68,15 @@ class VideoTaskProcessor:
             
             logger.info(f"Processing task {task_id} with story_style_descriptor: {story_style_descriptor}")
             
-            await task.update(task_id=task_id, progress=0.05, status_message="Story prepared")
+            # Save title and description to database
+            await task.update(
+                task_id=task_id, 
+                progress=0.05, 
+                status_message="Story prepared",
+                story_title=title,
+                story_description=description,
+                story_text=story
+            )
 
             # Step 2: Create resource directory and generate characters
             story_dir_name = story_style_descriptor if story_style_descriptor else "custom"
