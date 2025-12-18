@@ -21,17 +21,30 @@ def create_resource_dir(base_dir: str, story_type: str, title: str) -> str:
 
     return story_dir
 
-async def call_openai_api(client, messages, max_retries=3):
+async def call_openai_api(client, messages, max_retries=3, timeout=120):
     import asyncio
     
     for attempt in range(max_retries):
         try:
-            response = await client.chat.completions.create(
-                model=settings.openai.get('model'),
-                temperature=settings.openai.get('temperature'),
-                messages=messages
+            # Add timeout to prevent hanging indefinitely
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=settings.openai.get('model'),
+                    temperature=settings.openai.get('temperature'),
+                    messages=messages,
+                    timeout=timeout  # Client-side timeout
+                ),
+                timeout=timeout + 10  # Additional buffer for async wrapper
             )
             return response.choices[0].message.content
+        except asyncio.TimeoutError:
+            logger.error(f"OpenAI API timeout after {timeout}s (attempt {attempt + 1}/{max_retries})")
+            if attempt == max_retries - 1:
+                logger.error(f"All {max_retries} attempts failed due to timeout")
+                return None
+            wait_time = 2 ** attempt
+            logger.info(f"Retrying in {wait_time} seconds...")
+            await asyncio.sleep(wait_time)
         except Exception as e:
             logger.error(f"Error calling OpenAI API (attempt {attempt + 1}/{max_retries}): {e}")
             

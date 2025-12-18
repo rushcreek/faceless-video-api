@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum, Float
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum, Float, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -15,6 +15,8 @@ class Image(Base):
 
     id = Column(String, primary_key=True, index=True)
     task_id = Column(String, ForeignKey("video_tasks.id"), nullable=False, index=True)
+    scene_number = Column(Integer, nullable=True, index=True)  # Scene order from storyboard
+    audio_duration = Column(Float, nullable=True)  # Scene duration in seconds (from audio)
     urls = Column(JSONB, default=list)
     subtitles = Column(Text)
     enhanced_prompt = Column(Text)

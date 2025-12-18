@@ -129,11 +129,13 @@ class VideoTaskProcessor:
                 image_data = {
                     "id": str(uuid4()),
                     "task_id": task_id,
+                    "scene_number": storyboard_scene.get("scene_number", i + 1),  # Preserve scene order from storyboard
                     "urls": [image_url] if image_url else [],
-                    "subtitles": storyboard_scene["description"],
+                    "subtitles": storyboard_scene["subtitles"],  # Use actual subtitles from storyboard, not description
                     "status": "completed" if image_url else "failed",
                     "enhanced_prompt": storyboard_scene.get("enhanced_prompt", ""),
                     "video_generation_request": storyboard_scene.get("video_generation_request"),
+                    "audio_duration": storyboard_scene.get("audio_duration"),  # Store scene duration from audio
                     "error_message": storyboard_scene.get("error_message", "")
                 }
                 image_create_tasks.append(Image.create(**image_data))
@@ -143,63 +145,58 @@ class VideoTaskProcessor:
             # Check if task was cancelled
             task = await VideoTask.get(task_id)
             if task.status == "failed":
-                logger.info(f"Task {task_id} was cancelled, stopping before video clip wait")
+                logger.info(f"Task {task_id} was cancelled, stopping before video clip generation")
                 return
 
-            # Step 5.5: Wait for video clips to be generated
-            # This is a PLACEHOLDER - video clips will be generated via separate API call
-            # The final video generation should only happen AFTER video clips are ready
-            # For now, mark this task as "waiting_for_clips" and stop here
+            # Step 5.5: Generate video clips automatically for first, last, and one middle scene
             await task.update(
                 task_id=task_id, 
-                status="waiting_for_clips", 
+                status="processing", 
                 progress=0.50, 
-                status_message="Images ready. Use /generate-video-clips endpoint to create animated clips, then /finalize-video to stitch them together."
+                status_message="Generating video clips for key scenes..."
             )
-            return  # Stop here - don't create final video yet
-
-            # Step 6: Generate and upload video
-            # THIS WILL BE CALLED BY A SEPARATE ENDPOINT AFTER VIDEO CLIPS ARE READY
-            # Progress callback for video generation (50% to 98%)
-            async def video_progress_callback(progress_value, message):
-                # Progress value is already in 0-1 range, just use it directly
-                await task.update(task_id=task_id, progress=round(progress_value, 2), status_message=message)
             
-            video_path = await self.video_generator.generate_video(
-                storyboard_project, 
-                story_dir, 
-                voice_name, 
-                caption_font,
-                progress_callback=video_progress_callback
+            # Import and call video clip generation with smart scene selection
+            from app.api.endpoints.video_clips import process_video_clips_background_with_durations
+            try:
+                await process_video_clips_background_with_durations(task_id)
+                logger.info(f"Video clips generated successfully for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to generate video clips: {str(e)}")
+                await task.update(
+                    task_id=task_id,
+                    status="failed",
+                    error_message=f"Video clip generation failed: {str(e)}"
+                )
+                return
+            
+            # Check if task was cancelled during video clip generation
+            task = await VideoTask.get(task_id)
+            if task.status == "failed":
+                logger.info(f"Task {task_id} was cancelled during video clip generation")
+                return
+            
+            # Step 5.6: Automatically finalize the video
+            await task.update(
+                task_id=task_id,
+                progress=0.55,
+                status_message="Finalizing video with clips and images..."
             )
-            if not video_path:
-                raise ValueError("Failed to create video")
-
-            # Get the last directory name from story_dir
-            await task.update(task_id=task_id, progress=0.98, status_message="Uploading video...")
-            video_name = os.path.basename(os.path.normpath(story_dir))
-            object_name = f"videos/{task_id}/{video_name}.mp4"
-            r2_url = await self.storage_service.upload_to_r2(video_path, object_name)
-            logger.info(f"Video uploaded to R2: {r2_url}")
-            if not r2_url:
-                raise ValueError("Failed to upload video to R2")
-
-            # Use public R2 URL format
-            public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
             
-            # Update the video_task table instead of creating a new video record
-            update_data = {
-                "url": public_url,
-                "story_title": title,
-                "story_description": description,
-                "story_text": story,
-                "status": "completed"
-            }
-            updated_task = await task.update(task_id=task_id, **update_data)
-            if not updated_task:
-                raise ValueError("Failed to update video task record in database")
-
-            await task.update(task_id=task_id, status="completed", progress=1.0, status_message="Video ready!")
+            try:
+                await self.finalize_video_with_clips(task_id)
+                logger.info(f"Video finalized successfully for task {task_id}")
+            except Exception as e:
+                logger.error(f"Failed to finalize video: {str(e)}")
+                await task.update(
+                    task_id=task_id,
+                    status="failed",
+                    error_message=f"Finalization failed: {str(e)}"
+                )
+                return
+            
+            # Finalization complete - task should now be marked as completed
+            logger.info(f"Task {task_id} completed successfully")
         except Exception as e:
             logger.error(f"Error in video generation task: {str(e)}")
             await task.update(task_id=task_id, status="failed", error_message=str(e))
@@ -226,6 +223,17 @@ class VideoTaskProcessor:
             if not images:
                 raise ValueError("No scenes found for this task")
             
+            # CRITICAL: Sort images to maintain storyboard narrative order
+            # First try scene_number (new tasks), fall back to created_at (old tasks)
+            def sort_key(img):
+                if img.scene_number is not None:
+                    return (0, img.scene_number)  # Priority 0 = use scene_number
+                else:
+                    return (1, img.created_at.timestamp())  # Priority 1 = use created_at as fallback
+            
+            images.sort(key=sort_key)
+            logger.info(f"Sorted {len(images)} images to maintain narrative order")
+            
             # Recreate the storyboard structure needed for video generation
             # This includes using video clips where available
             storyboard_project = {
@@ -245,6 +253,7 @@ class VideoTaskProcessor:
                     "enhanced_prompt": image.enhanced_prompt or "",
                     "video_generation_request": image.video_generation_request,
                     "video_clip_url": image.video_clip_url,  # Use video clip if available
+                    "image": image.urls[0] if image.urls else None,  # video_generator expects 'image'
                     "image_url": image.urls[0] if image.urls else None,
                     "urls": image.urls  # Keep original urls array for compatibility
                 }

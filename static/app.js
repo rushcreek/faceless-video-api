@@ -505,7 +505,7 @@ function displayFullTaskStatus(task) {
     
     let html = `
         <div class="task-card">
-            <h3>${task.story_title || 'Untitled'}</h3>
+            <h3>${task.story_title || task.custom_title || 'Untitled'}</h3>
             <p><strong>Status:</strong> <span class="status-badge ${task.status}">${task.status}</span></p>
             <p><strong>Task ID:</strong> ${task.task_id}</p>
             <p><strong>Created:</strong> ${new Date(task.created_at).toLocaleString()}</p>
@@ -556,41 +556,93 @@ function displayFullTaskStatus(task) {
     }
     
     if (task.images && task.images.length > 0) {
+        // Sort images to maintain story sequence
+        // Use scene_number if available (new tasks), otherwise use created_at (old tasks)
+        const sortedImages = [...task.images].sort((a, b) => {
+            // If both have scene_number, use that
+            if (a.scene_number !== undefined && a.scene_number !== null && 
+                b.scene_number !== undefined && b.scene_number !== null) {
+                return a.scene_number - b.scene_number;
+            }
+            // If only one has scene_number, prioritize it
+            if (a.scene_number !== undefined && a.scene_number !== null) return -1;
+            if (b.scene_number !== undefined && b.scene_number !== null) return 1;
+            // Fall back to created_at for old tasks
+            return new Date(a.created_at) - new Date(b.created_at);
+        });
+        
         html += `
-            <h4>Generated Images (${task.images.length}):</h4>
+            <h4>Generated Images (${sortedImages.length}):</h4>
             <div class="image-grid">
         `;
         
-        task.images.forEach((img, idx) => {
+        sortedImages.forEach((img, idx) => {
             if (img.urls && img.urls.length > 0) {
                 html += `
-                    <div class="image-card">
+                    <div class="image-card" data-image-id="${img.id}">
                         <img src="${img.urls[0]}" alt="Scene ${idx + 1}">
                         <p>${img.subtitles || `Scene ${idx + 1}`}</p>
                 `;
                 
-                // Add video generation request if available
+                // Add editable image prompt - collapsed by default
+                const imagePrompt = img.enhanced_prompt || img.prompt || '';
+                html += `
+                    <details class="prompt-details" style="margin-top: 10px;">
+                        <summary style="cursor: pointer; color: #2196F3; font-weight: bold; font-size: 0.9em; padding: 8px 0;">
+                            🖼️ Image Prompt
+                        </summary>
+                        <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #e0e0e0;">
+                            <textarea 
+                                id="image-prompt-${idx}" 
+                                class="prompt-textarea"
+                                placeholder="Image generation prompt will appear here..."
+                                style="width: 100%; min-height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; font-family: inherit; resize: vertical; background: white;"
+                                oninput="onPromptChanged(${idx}, 'image')"
+                            >${imagePrompt}</textarea>
+                        </div>
+                    </details>
+                `;
+                
+                // Add editable video generation request if available
                 if (img.video_generation_request) {
                     const videoReq = img.video_generation_request;
                     html += `
-                        <details class="video-prompt-details">
-                            <summary style="cursor: pointer; color: #667eea; font-weight: bold; margin-top: 8px;">📹 Video Prompt</summary>
-                            <div style="margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em;">
-                                <p><strong>Motion Prompt:</strong><br>${videoReq.prompt || 'N/A'}</p>
-                                <p style="margin-top: 8px;"><strong>Negative:</strong><br>${videoReq.negative_prompt || 'N/A'}</p>
-                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; font-size: 0.85em;">
-                                    <p><strong>Steps:</strong> ${videoReq.num_inference_steps || 50}</p>
-                                    <p><strong>Guidance:</strong> ${videoReq.guidance_scale || 7.5}</p>
-                                    <p><strong>Duration:</strong> ${videoReq.duration || 5}s</p>
-                                    <p><strong>FPS:</strong> ${videoReq.fps || 24}</p>
-                                </div>
-                                <button onclick="copyVideoRequest(${idx})" style="margin-top: 10px; padding: 5px 10px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                                    Copy JSON Request
-                                </button>
+                        <details class="prompt-details" style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #667eea; font-weight: bold; font-size: 0.9em; padding: 8px 0;">
+                                📹 Video Motion Prompt
+                            </summary>
+                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #e0e0e0;">
+                                <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.85em; color: #333;">Motion Prompt:</label>
+                                <textarea 
+                                    id="video-prompt-${idx}" 
+                                    class="prompt-textarea"
+                                    style="width: 100%; min-height: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; font-family: inherit; margin-bottom: 12px; background: white; resize: vertical;"
+                                    oninput="onPromptChanged(${idx}, 'video')"
+                                >${videoReq.prompt || ''}</textarea>
+                                
+                                <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.85em; color: #333;">Negative Prompt:</label>
+                                <textarea 
+                                    id="video-negative-${idx}" 
+                                    class="prompt-textarea"
+                                    style="width: 100%; min-height: 50px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; font-family: inherit; background: white; resize: vertical;"
+                                    oninput="onPromptChanged(${idx}, 'video')"
+                                >${videoReq.negative_prompt || ''}</textarea>
                             </div>
                         </details>
                     `;
                 }
+                
+                // Add regenerate button (hidden initially)
+                html += `
+                    <button 
+                        id="regenerate-btn-${idx}" 
+                        class="regenerate-button" 
+                        style="display: none; width: 100%; margin-top: 10px; padding: 8px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;"
+                        onclick="regenerateScene(${idx})"
+                    >
+                        🔄 Regenerate with New Prompts
+                    </button>
+                `;
                 
                 html += `</div>`;
             }
@@ -761,8 +813,8 @@ function displayRunningTasks(tasks) {
     }
     
     listContainer.innerHTML = activeTasks.map(task => {
-        const title = task.custom_title || 'Untitled Video';
-        const progress = task.progress || 0;
+        const title = task.story_title || task.custom_title || 'Untitled Video';
+        const progress = Math.round((task.progress || 0) * 100);
         const statusMessage = task.status_message || '';
         const createdAt = new Date(task.created_at).toLocaleString();
         
@@ -795,7 +847,7 @@ function viewTaskDetails(taskId) {
 }
 
 async function confirmCancelTask(taskId) {
-    if (!confirm(`Are you sure you want to cancel task ${taskId}?`)) {
+    if (!confirm(`Are you sure you want to cancel task ${taskId.substring(0, 8)}...?`)) {
         return;
     }
     
@@ -813,25 +865,176 @@ async function cancelTaskFromPanel(taskId) {
         const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}/cancel`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             }
         });
         
-        if (response.ok) {
-            alert('Task cancelled successfully');
-            // Refresh the running tasks list
-            await refreshRunningTasks();
-            // If this was the current task being viewed, update the status display
-            if (currentTaskId === taskId) {
-                fetchTaskStatus();
+        // Always refresh the list regardless of response
+        // This handles both success and "already cancelled" cases gracefully
+        await refreshRunningTasks();
+        
+        if (!response.ok) {
+            // Only show error if it's a real error (not "already cancelled")
+            try {
+                const error = await response.json();
+                // Don't alert for "already cancelled" errors
+                if (!error.detail?.includes('already')) {
+                    console.error('Cancel task error:', error);
+                }
+            } catch (e) {
+                console.error('Cancel task failed:', response.status, response.statusText);
             }
-        } else {
-            const error = await response.json();
-            alert(`Failed to cancel task: ${error.detail || 'Unknown error'}`);
         }
     } catch (error) {
         console.error('Error cancelling task:', error);
-        alert('Error cancelling task. Please try again.');
+        // Refresh anyway to show current state
+        await refreshRunningTasks();
+    }
+}
+
+// Track original prompts for change detection
+let originalPrompts = {};
+
+// Store task images data globally for regeneration
+let currentTaskImages = [];
+
+// Called when any prompt is changed
+function onPromptChanged(sceneIdx, promptType) {
+    const regenerateBtn = document.getElementById(`regenerate-btn-${sceneIdx}`);
+    if (!regenerateBtn) return;
+    
+    // Initialize original prompts if not done
+    if (!originalPrompts[sceneIdx]) {
+        const imagePrompt = document.getElementById(`image-prompt-${sceneIdx}`);
+        const videoPrompt = document.getElementById(`video-prompt-${sceneIdx}`);
+        const videoNegative = document.getElementById(`video-negative-${sceneIdx}`);
+        
+        originalPrompts[sceneIdx] = {
+            image: imagePrompt ? imagePrompt.defaultValue : '',
+            video: videoPrompt ? videoPrompt.defaultValue : '',
+            negative: videoNegative ? videoNegative.defaultValue : ''
+        };
+    }
+    
+    // Check if any prompts have changed
+    const imagePrompt = document.getElementById(`image-prompt-${sceneIdx}`);
+    const videoPrompt = document.getElementById(`video-prompt-${sceneIdx}`);
+    const videoNegative = document.getElementById(`video-negative-${sceneIdx}`);
+    
+    const hasChanges = 
+        (imagePrompt && imagePrompt.value !== originalPrompts[sceneIdx].image) ||
+        (videoPrompt && videoPrompt.value !== originalPrompts[sceneIdx].video) ||
+        (videoNegative && videoNegative.value !== originalPrompts[sceneIdx].negative);
+    
+    // Show/hide regenerate button
+    regenerateBtn.style.display = hasChanges ? 'block' : 'none';
+}
+
+// Regenerate a specific scene with new prompts
+async function regenerateScene(sceneIdx) {
+    const taskId = document.getElementById('status_task_id').value.trim();
+    if (!taskId) {
+        alert('No task ID available');
+        return;
+    }
+    
+    // Get the image ID from the card
+    const imageCards = document.querySelectorAll('.image-card');
+    if (!imageCards[sceneIdx]) {
+        alert('Scene not found');
+        return;
+    }
+    
+    const imageId = imageCards[sceneIdx].dataset.imageId;
+    if (!imageId) {
+        alert('Image ID not found');
+        return;
+    }
+    
+    // Get updated prompts
+    const imagePromptEl = document.getElementById(`image-prompt-${sceneIdx}`);
+    const videoPromptEl = document.getElementById(`video-prompt-${sceneIdx}`);
+    const videoNegativeEl = document.getElementById(`video-negative-${sceneIdx}`);
+    
+    const updates = {};
+    
+    if (imagePromptEl && imagePromptEl.value !== originalPrompts[sceneIdx]?.image) {
+        updates.image_prompt = imagePromptEl.value;
+    }
+    
+    if (videoPromptEl || videoNegativeEl) {
+        const videoRequest = {};
+        if (videoPromptEl && videoPromptEl.value !== originalPrompts[sceneIdx]?.video) {
+            videoRequest.prompt = videoPromptEl.value;
+        }
+        if (videoNegativeEl && videoNegativeEl.value !== originalPrompts[sceneIdx]?.negative) {
+            videoRequest.negative_prompt = videoNegativeEl.value;
+        }
+        
+        if (Object.keys(videoRequest).length > 0) {
+            updates.video_generation_request = videoRequest;
+        }
+    }
+    
+    if (Object.keys(updates).length === 0) {
+        alert('No changes detected');
+        return;
+    }
+    
+    if (!confirm(`Regenerate scene ${sceneIdx + 1} with new prompts?`)) {
+        return;
+    }
+    
+    try {
+        const token = await getAuthToken();
+        if (!token) return;
+        
+        const regenerateBtn = document.getElementById(`regenerate-btn-${sceneIdx}`);
+        regenerateBtn.disabled = true;
+        regenerateBtn.textContent = '⏳ Regenerating...';
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}/images/${imageId}/regenerate`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updates)
+        });
+        
+        if (response.ok) {
+            alert('Scene regeneration started! The page will refresh when complete.');
+            
+            // Update original prompts
+            if (updates.image_prompt) {
+                originalPrompts[sceneIdx].image = updates.image_prompt;
+            }
+            if (updates.video_generation_request?.prompt) {
+                originalPrompts[sceneIdx].video = updates.video_generation_request.prompt;
+            }
+            if (updates.video_generation_request?.negative_prompt) {
+                originalPrompts[sceneIdx].negative = updates.video_generation_request.negative_prompt;
+            }
+            
+            regenerateBtn.style.display = 'none';
+            regenerateBtn.disabled = false;
+            regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
+            
+            // Refresh task status after a delay
+            setTimeout(() => fetchTaskStatus(), 3000);
+        } else {
+            const error = await response.json();
+            alert(`Failed to regenerate: ${error.detail || 'Unknown error'}`);
+            regenerateBtn.disabled = false;
+            regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
+        }
+    } catch (error) {
+        console.error('Error regenerating scene:', error);
+        alert('Failed to regenerate scene');
+        const regenerateBtn = document.getElementById(`regenerate-btn-${sceneIdx}`);
+        regenerateBtn.disabled = false;
+        regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
     }
 }
 

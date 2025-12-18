@@ -90,26 +90,25 @@ class StoryGenerator:
         Generate a Seadance 1.0 video generation request based on an image scene description.
         Returns a complete JSON request for video generation from the image.
         """
-        prompt = f"""Based on this image scene description, create a compelling video motion prompt for Seadance 1.0 video generation.
+        prompt = f"""Based on this image scene description, create a SIMPLE, MINIMAL video motion prompt for Seadance 1.0 video generation.
 
 Scene Description: {scene_description}
 Art Style: {art_style if art_style else 'photorealistic'}
 
-Create a video prompt that describes natural, realistic motion that would bring this scene to life. Consider:
-- Camera movements (subtle pans, tilts, slow zoom)
-- Subject actions (if person: looking at camera, performing described actions, natural gestures, facial expressions)
-- Environmental motion (wind, water, leaves, clouds, ambient movement)
-- Lighting changes (subtle shifts, flickers if applicable)
-- Overall cinematic quality and pacing
+Create a brief video prompt with MINIMAL motion description. Keep it simple:
+- Use general terms, not specific detailed actions
+- Keep movements slow and subtle
+- Avoid complex or exaggerated motion
+- Focus on gentle, natural movement only
 
 The motion should be:
-- Smooth and professional
-- Appropriate for the scene's mood and content
-- Natural and believable
-- Not overly dramatic unless the scene calls for it
+- MINIMAL and understated
+- Slow and smooth
+- Simple and conservative
+- Natural but NOT detailed
 
 Generate a complete Seadance 1.0 API request in JSON format with these fields:
-- prompt: Detailed motion description (focus on movement, actions, camera work)
+- prompt: BRIEF motion description (keep it general and simple - avoid specific detailed actions)
 - negative_prompt: What to avoid in the video
 - num_inference_steps: Recommended inference steps (default: 50)
 - guidance_scale: Recommended guidance scale (default: 7.5)
@@ -121,14 +120,16 @@ Return ONLY the JSON object, no other text."""
         messages = [
             {
                 "role": "system",
-                "content": """You are an expert in video generation and motion design. You specialize in:
-                1. Translating static image descriptions into dynamic video motion prompts
-                2. Understanding natural human behavior and realistic camera movements
-                3. Creating prompts optimized for AI video generation models like Seadance 1.0
-                4. Balancing subtle motion with engaging visual storytelling
-                5. Ensuring motion matches the mood, style, and context of the scene
+                "content": """You are an expert in video generation. You specialize in creating SIMPLE, MINIMAL motion prompts.
                 
-                You create professional, cinema-quality motion descriptions that enhance scenes without being overly dramatic."""
+                CRITICAL RULES:
+                1. Keep motion descriptions SHORT and GENERAL
+                2. Use broad terms like "gentle movement" instead of specific detailed actions
+                3. Avoid describing complex or specific human movements
+                4. Prioritize subtlety over detail
+                5. When in doubt, use less description
+                
+                You create simple, understated motion descriptions that avoid unintended distortions."""
             },
             {"role": "user", "content": prompt},
         ]
@@ -197,7 +198,7 @@ Return ONLY the JSON object, no other text."""
             4. Camera, Lighting, and Transition: As per the guidelines below.
 
             Then, for each subsequent scene, provide the following details:
-            1. Scene Number
+            1. Scene Number: An integer starting from 1 and incrementing sequentially (1, 2, 3, etc.)
             2. Description: A vivid description (60-70 words) focusing on key visual elements.
             3. Subtitles: Use EXACT quotes from the original story WITH ALL PUNCTUATION PRESERVED (periods, commas, question marks, exclamation points, etc.)
             4. Camera: Specify the angle, composition type, and shot size.
@@ -205,6 +206,7 @@ Return ONLY the JSON object, no other text."""
             6. Transition: Specify the type of transition to the current scene.
 
             Guidelines:
+            - Scene numbers MUST be integers (1, 2, 3, etc.), NOT strings.
             - Subtitles MUST contain only exact text from the original story, without any additions, omissions, or modifications.
             - PRESERVE ALL PUNCTUATION exactly as it appears in the original story (periods, commas, question marks, exclamation points, quotation marks, apostrophes, dashes, etc.)
             - Include every sentence from the original story in the subtitles, maintaining the correct order across all scenes.
@@ -243,7 +245,7 @@ Return ONLY the JSON object, no other text."""
                 }}}},
                 "storyboards": [
                     {{{{
-                        "scene_number": "Scene Number",
+                        "scene_number": 1,
                         "description": "Scene Description",
                         "subtitles": "Subtitles or Dialogue",
                         "image": null,
@@ -300,6 +302,14 @@ Return ONLY the JSON object, no other text."""
             json_str = json_match.group()
             try:
                 storyboard_data = json.loads(json_str)
+                
+                # Validate and normalize scene_number field
+                if storyboard_data.get("storyboards"):
+                    for idx, scene in enumerate(storyboard_data["storyboards"]):
+                        # Ensure scene_number exists and is an integer
+                        if "scene_number" not in scene or not isinstance(scene["scene_number"], int):
+                            scene["scene_number"] = idx + 1
+                            logger.warning(f"Scene {idx} missing or invalid scene_number, set to {idx + 1}")
                 
                 # Generate video prompts for select key scenes only (first, two middle, last)
                 logger.info("Generating video prompts for key scenes...")

@@ -88,8 +88,12 @@ async def get_task_status(task_id: str, current_user: dict = Depends(get_current
         images=[ImageStatus(
             id=image.id,
             status=image.status,
+            scene_number=image.scene_number,
             urls=image.urls,
             subtitles=image.subtitles,
+            enhanced_prompt=image.enhanced_prompt,
+            video_generation_request=image.video_generation_request,
+            video_clip_url=image.video_clip_url,
             created_at=image.created_at,
             updated_at=image.updated_at
         ) for image in images],
@@ -102,17 +106,27 @@ async def cancel_task(task_id: str, current_user: dict = Depends(get_current_use
     """
     Cancel a running or queued video generation task.
     This will mark the task as failed and stop further processing.
+    
+    Note: For video clips being generated via Runware, this stops polling
+    but the videos may still complete on Runware's servers.
     """
     task = await VideoTask.get(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     
     # Check if task can be cancelled
-    if task.status in ["completed"]:
+    if task.status == "completed":
         raise HTTPException(status_code=400, detail="Cannot cancel a completed task")
     
+    # If already failed/cancelled, return success (idempotent)
     if task.status == "failed":
-        raise HTTPException(status_code=400, detail="Task already failed")
+        logger.info(f"Task {task_id} already cancelled/failed")
+        return {
+            "task_id": task_id,
+            "status": "failed",
+            "message": "Task already cancelled",
+            "clips_cancelled": 0
+        }
     
     # Update task status to failed with cancellation message
     await task.update(
@@ -122,10 +136,26 @@ async def cancel_task(task_id: str, current_user: dict = Depends(get_current_use
         status_message="Task cancelled"
     )
     
+    # Also cancel any video clips being generated
+    from app.models.image import Image
+    images = await Image.list_by_task(task_id)
+    cancelled_clips = 0
+    for image in images:
+        if image.video_clip_status == 'processing':
+            await image.update(
+                image_id=image.id,
+                video_clip_status='failed',
+                error_message='Cancelled by user'
+            )
+            cancelled_clips += 1
+    
+    logger.info(f"Task {task_id} cancelled by user. {cancelled_clips} video clips cancelled.")
+    
     return {
         "task_id": task_id,
         "status": "failed",
-        "message": "Task cancelled successfully"
+        "message": f"Task cancelled successfully. {cancelled_clips} video clips stopped.",
+        "clips_cancelled": cancelled_clips
     }
 
 @router.get("/video/tasks")
@@ -151,4 +181,68 @@ async def list_tasks(
             "updated_at": task.updated_at.isoformat() if task.updated_at else None
         } for task in tasks],
         "total": len(tasks)
+    }
+
+@router.post("/video/tasks/{task_id}/images/{image_id}/regenerate")
+async def regenerate_scene(
+    task_id: str,
+    image_id: str,
+    updates: dict,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Regenerate a specific scene's image and/or video with updated prompts.
+    
+    Request body can contain:
+    - image_prompt: New prompt for image regeneration
+    - video_generation_request: Updated video generation parameters
+        - prompt: New motion prompt
+        - negative_prompt: New negative prompt
+    """
+    from app.db.session import async_session
+    from sqlalchemy.future import select
+    
+    # Verify task exists
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Get the image
+    async with async_session() as session:
+        result = await session.execute(
+            select(Image).where(Image.id == image_id, Image.task_id == task_id)
+        )
+        image = result.scalar_one_or_none()
+        
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found in this task")
+        
+        # Update image prompt if provided
+        if "image_prompt" in updates:
+            image.enhanced_prompt = updates["image_prompt"]
+            # TODO: Trigger image regeneration in background
+            logger.info(f"Updated image prompt for image {image_id}")
+        
+        # Update video generation request if provided
+        if "video_generation_request" in updates:
+            current_req = image.video_generation_request or {}
+            video_updates = updates["video_generation_request"]
+            
+            if "prompt" in video_updates:
+                current_req["prompt"] = video_updates["prompt"]
+            if "negative_prompt" in video_updates:
+                current_req["negative_prompt"] = video_updates["negative_prompt"]
+            
+            image.video_generation_request = current_req
+            # TODO: Trigger video clip regeneration in background
+            logger.info(f"Updated video prompts for image {image_id}")
+        
+        await session.commit()
+    
+    return {
+        "task_id": task_id,
+        "image_id": image_id,
+        "message": "Prompts updated successfully. Regeneration functionality coming soon.",
+        "updates": updates
     }

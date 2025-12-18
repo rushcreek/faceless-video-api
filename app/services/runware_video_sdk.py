@@ -3,6 +3,7 @@ Runware video generation service using Runware SDK (cleaner approach)
 """
 import asyncio
 from typing import Optional
+from sqlalchemy.future import select
 from app.core.config import settings
 from app.core.logging import logger
 from runware import Runware, IVideoInference, IFrameImage, IBytedanceProviderSettings
@@ -15,7 +16,9 @@ async def generate_video_from_image(
     fps: int = 24,
     width: int = 480,
     height: int = 864,
-    max_retries: int = 3
+    max_retries: int = 3,
+    db_session = None,
+    image_id: str = None
 ) -> Optional[str]:
     """
     Generate a video from an image using Runware's bytedance:2@1 model via SDK
@@ -28,9 +31,11 @@ async def generate_video_from_image(
         width: Video width (default: 480)
         height: Video height (default: 864)
         max_retries: Maximum number of retry attempts (default: 3)
+        db_session: Database session for cancellation checks
+        image_id: Image ID for cancellation checks
     
     Returns:
-        URL of generated video or None if failed
+        URL of generated video or None if failed/cancelled
     """
     
     for attempt in range(max_retries):
@@ -73,6 +78,18 @@ async def generate_video_from_image(
                 poll_interval = 3  # seconds - faster polling for quicker response
                 
                 for poll_attempt in range(max_poll_attempts):
+                    # Check if task was cancelled (Option 1: Stop polling)
+                    if db_session and image_id:
+                        from app.models.image import Image
+                        result = await db_session.execute(
+                            select(Image).where(Image.id == image_id)
+                        )
+                        image = result.scalar_one_or_none()
+                        
+                        if image and image.video_clip_status in ['failed', 'cancelled']:
+                            logger.info(f"Task {task_uuid} cancelled by user. Stopping polling.")
+                            return None
+                    
                     await asyncio.sleep(poll_interval)
                     
                     try:

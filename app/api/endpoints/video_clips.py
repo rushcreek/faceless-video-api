@@ -102,13 +102,23 @@ async def process_video_clips_background(task_id: str, duration: int = 2, fps: i
                     logger.debug(f"Image: {image_url}")
                     logger.debug(f"Prompt: {prompt[:100]}...")
                     
-                    # Generate video clip
-                    video_url = await generate_video_from_image(
-                        image_url=image_url,
-                        prompt=prompt,
-                        duration=duration,
-                        fps=fps
-                    )
+                    # Generate video clip with cancellation support
+                    async with async_session() as check_session:
+                        video_url = await generate_video_from_image(
+                            image_url=image_url,
+                            prompt=prompt,
+                            duration=duration,
+                            fps=fps,
+                            db_session=check_session,
+                            image_id=scene.id
+                        )
+                    
+                    # Check for cancellation one more time after generation
+                    async with async_session() as final_check_session:
+                        final_scene = await final_check_session.get(Image, scene.id)
+                        if final_scene and final_scene.video_clip_status in ['failed', 'cancelled']:
+                            logger.info(f"Video clip generation for scene {scene.id} was cancelled")
+                            return
                     
                     # Update scene with result
                     async with async_session() as update_session:
@@ -139,6 +149,152 @@ async def process_video_clips_background(task_id: str, duration: int = 2, fps: i
             
     except Exception as e:
         logger.error(f"Error in background video clip processing: {e}")
+
+
+async def process_video_clips_background_with_durations(task_id: str, fps: int = 24):
+    """
+    Background task to generate video clips for SELECTED scenes only:
+    - First scene
+    - Last scene  
+    - One interesting middle scene (longest duration or most complex description)
+    
+    Uses actual audio_duration for each scene instead of fixed 2 seconds.
+    """
+    
+    try:
+        async with async_session() as session:
+            # Get ALL scenes ordered by scene_number
+            all_scenes_result = await session.execute(
+                select(Image)
+                .where(Image.task_id == task_id)
+                .order_by(Image.scene_number)
+            )
+            all_scenes = all_scenes_result.scalars().all()
+            total_scenes = len(all_scenes)
+            
+            if total_scenes == 0:
+                logger.warning(f"No scenes found for task {task_id}")
+                return
+            
+            logger.info(f"Task {task_id} has {total_scenes} scenes - selecting first, last, and interesting middle")
+            
+            # Select scenes to animate
+            scenes_to_animate = []
+            
+            # Always include first scene
+            scenes_to_animate.append(all_scenes[0])
+            logger.info(f"Selected first scene: {all_scenes[0].scene_number}")
+            
+            # Always include last scene (if more than 1 scene)
+            if total_scenes > 1:
+                scenes_to_animate.append(all_scenes[-1])
+                logger.info(f"Selected last scene: {all_scenes[-1].scene_number}")
+            
+            # Select one interesting middle scene (if more than 2 scenes)
+            if total_scenes > 2:
+                # Get middle third of scenes
+                middle_start = total_scenes // 3
+                middle_end = (2 * total_scenes) // 3
+                middle_candidates = all_scenes[middle_start:middle_end]
+                
+                if middle_candidates:
+                    # Pick scene with longest audio duration
+                    # (more narration = more important scene)
+                    interesting_scene = max(
+                        middle_candidates, 
+                        key=lambda s: s.audio_duration if s.audio_duration else 0
+                    )
+                    scenes_to_animate.append(interesting_scene)
+                    logger.info(f"Selected interesting middle scene: {interesting_scene.scene_number} "
+                              f"(duration: {interesting_scene.audio_duration:.2f}s)")
+            
+            logger.info(f"Generating video clips for {len(scenes_to_animate)} scenes")
+            
+            # Generate video clips in parallel
+            async def generate_clip_for_scene(scene):
+                try:
+                    # Get image URL
+                    urls = scene.urls
+                    if not urls or len(urls) == 0:
+                        logger.warning(f"Scene {scene.scene_number} has no image URLs")
+                        return
+                    
+                    image_url = urls[0]
+                    
+                    # Get duration from audio (fallback to 2 seconds if not available)
+                    scene_duration = int(scene.audio_duration) if scene.audio_duration else 2
+                    logger.info(f"Scene {scene.scene_number}: Using duration {scene_duration}s "
+                              f"(audio_duration: {scene.audio_duration})")
+                    
+                    # For animated scenes, create a video generation prompt
+                    # Use existing video_generation_request if available, otherwise create basic one
+                    if scene.video_generation_request and 'prompt' in scene.video_generation_request:
+                        prompt = scene.video_generation_request['prompt']
+                    else:
+                        # Create basic animation prompt from subtitles
+                        prompt = f"Gentle camera movement, subtle zoom, {scene.subtitles[:100]}"
+                    
+                    # Generate unique task UUID for this clip
+                    clip_task_uuid = str(uuid_lib.uuid4())
+                    
+                    # Update scene status to processing
+                    async with async_session() as update_session:
+                        scene_to_update = await update_session.get(Image, scene.id)
+                        scene_to_update.video_clip_task_uuid = clip_task_uuid
+                        scene_to_update.video_clip_status = 'processing'
+                        await update_session.commit()
+                    
+                    logger.info(f"Generating {scene_duration}s video clip for scene {scene.scene_number}")
+                    logger.debug(f"Image: {image_url}")
+                    logger.debug(f"Prompt: {prompt[:100]}...")
+                    
+                    # Generate video clip with actual scene duration
+                    async with async_session() as check_session:
+                        video_url = await generate_video_from_image(
+                            image_url=image_url,
+                            prompt=prompt,
+                            duration=scene_duration,  # Use actual duration!
+                            fps=fps,
+                            db_session=check_session,
+                            image_id=scene.id
+                        )
+                    
+                    # Check for cancellation
+                    async with async_session() as final_check_session:
+                        final_scene = await final_check_session.get(Image, scene.id)
+                        if final_scene and final_scene.video_clip_status in ['failed', 'cancelled']:
+                            logger.info(f"Video clip generation for scene {scene.scene_number} was cancelled")
+                            return
+                    
+                    # Update scene with result
+                    async with async_session() as update_session:
+                        scene_to_update = await update_session.get(Image, scene.id)
+                        if video_url:
+                            scene_to_update.video_clip_url = video_url
+                            scene_to_update.video_clip_status = 'completed'
+                            logger.info(f"✅ Video clip generated for scene {scene.scene_number}: {video_url}")
+                        else:
+                            scene_to_update.video_clip_status = 'failed'
+                            logger.error(f"❌ Failed to generate video clip for scene {scene.scene_number}")
+                        await update_session.commit()
+                    
+                except Exception as e:
+                    logger.error(f"Error generating video clip for scene {scene.scene_number}: {e}")
+                    async with async_session() as update_session:
+                        scene_to_update = await update_session.get(Image, scene.id)
+                        scene_to_update.video_clip_status = 'failed'
+                        await update_session.commit()
+            
+            # Process all selected scenes in parallel
+            await asyncio.gather(*[
+                generate_clip_for_scene(scene)
+                for scene in scenes_to_animate
+            ])
+            
+            logger.info(f"Completed video clip generation for task {task_id}")
+            
+    except Exception as e:
+        logger.error(f"Error in background video clip processing with durations: {e}")
 
 
 @router.post("/tasks/{task_id}/generate-video-clips", response_model=VideoClipResponse)
