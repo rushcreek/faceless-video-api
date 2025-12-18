@@ -167,16 +167,13 @@ class VideoTaskProcessor:
             # Import and call video clip generation with smart scene selection
             from app.api.endpoints.video_clips import process_video_clips_background_with_durations
             try:
+                logger.info(f"⚡ About to call process_video_clips_background_with_durations for task {task_id}")
                 await process_video_clips_background_with_durations(task_id)
-                logger.info(f"Video clips generated successfully for task {task_id}")
+                logger.info(f"✅ Video clips generation function completed for task {task_id}")
             except Exception as e:
-                logger.error(f"Failed to generate video clips: {str(e)}")
-                await task.update(
-                    task_id=task_id,
-                    status="failed",
-                    error_message=f"Video clip generation failed: {str(e)}"
-                )
-                return
+                logger.error(f"❌ EXCEPTION in video clip generation: {str(e)}", exc_info=True)
+                # DON'T fail the whole task - continue without video clips
+                logger.warning(f"Continuing task {task_id} without video clips due to error")
             
             # Check if task was cancelled during video clip generation
             task = await VideoTask.get(task_id)

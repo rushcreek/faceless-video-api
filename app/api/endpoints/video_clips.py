@@ -288,15 +288,21 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         await update_session.commit()
             
             # Process all selected scenes in parallel
-            await asyncio.gather(*[
+            logger.info(f"🎥 Starting parallel video generation for {len(scenes_to_animate)} scenes")
+            results = await asyncio.gather(*[
                 generate_clip_for_scene(scene)
                 for scene in scenes_to_animate
-            ])
+            ], return_exceptions=True)
             
-            logger.info(f"Completed video clip generation for task {task_id}")
+            # Log any exceptions that occurred
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"❌ Exception in scene {scenes_to_animate[i].scene_number}: {result}", exc_info=result)
+            
+            logger.info(f"✅ Completed video clip generation for task {task_id}")
             
     except Exception as e:
-        logger.error(f"Error in background video clip processing with durations: {e}")
+        logger.error(f"❌ CRITICAL ERROR in background video clip processing: {e}", exc_info=True)
 
 
 @router.post("/tasks/{task_id}/generate-video-clips", response_model=VideoClipResponse)
