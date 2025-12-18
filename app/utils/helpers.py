@@ -21,17 +21,29 @@ def create_resource_dir(base_dir: str, story_type: str, title: str) -> str:
 
     return story_dir
 
-async def call_openai_api(client, messages):
-    try:
-        response = await client.chat.completions.create(
-            model=settings.openai.get('model'),
-            temperature=settings.openai.get('temperature'),
-            messages=messages
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        logger.error(f"Error calling OpenAI API: {e}")
-        return None
+async def call_openai_api(client, messages, max_retries=3):
+    import asyncio
+    
+    for attempt in range(max_retries):
+        try:
+            response = await client.chat.completions.create(
+                model=settings.openai.get('model'),
+                temperature=settings.openai.get('temperature'),
+                messages=messages
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Error calling OpenAI API (attempt {attempt + 1}/{max_retries}): {e}")
+            
+            # If this was the last attempt, return None
+            if attempt == max_retries - 1:
+                logger.error(f"All {max_retries} attempts failed")
+                return None
+            
+            # Wait with exponential backoff before retrying
+            wait_time = 2 ** attempt  # 1s, 2s, 4s
+            logger.info(f"Retrying in {wait_time} seconds...")
+            await asyncio.sleep(wait_time)
 
 def create_empty_storyboard(title: str) -> Dict[str, Any]:
     return {

@@ -301,22 +301,38 @@ Return ONLY the JSON object, no other text."""
             try:
                 storyboard_data = json.loads(json_str)
                 
-                # Generate video prompts for each scene (non-blocking)
-                # TEMPORARILY DISABLED: Too many API calls causing timeouts
-                # logger.info("Generating video prompts for storyboard scenes...")
-                # if storyboard_data.get("storyboards"):
-                #     for scene in storyboard_data["storyboards"]:
-                #         scene_description = scene.get("description", "")
-                #         try:
-                #             if scene_description:
-                #                 logger.info(f"Generating video prompt for scene {scene.get('scene_number', 'unknown')}")
-                #                 video_request = await self.generate_video_prompt(scene_description, art_style)
-                #                 scene["video_generation_request"] = video_request
-                #             else:
-                #                 scene["video_generation_request"] = self._create_default_video_request()
-                #         except Exception as e:
-                #             logger.warning(f"Failed to generate video prompt for scene {scene.get('scene_number', 'unknown')}: {e}")
-                #             scene["video_generation_request"] = self._create_default_video_request()
+                # Generate video prompts for select key scenes only (first, two middle, last)
+                logger.info("Generating video prompts for key scenes...")
+                if storyboard_data.get("storyboards"):
+                    scenes = storyboard_data["storyboards"]
+                    total_scenes = len(scenes)
+                    
+                    # Determine which scenes to generate prompts for
+                    key_scene_indices = set()
+                    if total_scenes > 0:
+                        key_scene_indices.add(0)  # First scene
+                    if total_scenes > 3:
+                        # Two scenes near the middle
+                        mid_point = total_scenes // 2
+                        key_scene_indices.add(mid_point - 1)
+                        key_scene_indices.add(mid_point)
+                    if total_scenes > 1:
+                        key_scene_indices.add(total_scenes - 1)  # Last scene
+                    
+                    for idx, scene in enumerate(scenes):
+                        if idx in key_scene_indices:
+                            scene_description = scene.get("description", "")
+                            try:
+                                if scene_description:
+                                    logger.info(f"Generating video prompt for scene {scene.get('scene_number', idx + 1)} (key scene)")
+                                    video_request = await self.generate_video_prompt(scene_description, art_style)
+                                    scene["video_generation_request"] = video_request
+                                else:
+                                    scene["video_generation_request"] = self._create_default_video_request()
+                            except Exception as e:
+                                logger.warning(f"Failed to generate video prompt for scene {scene.get('scene_number', idx + 1)}: {e}")
+                                scene["video_generation_request"] = self._create_default_video_request()
+                        # No video prompt for non-key scenes
                 
                 return storyboard_data
             except json.JSONDecodeError as e:

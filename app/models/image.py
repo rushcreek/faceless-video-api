@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Enum, Float
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -21,6 +21,13 @@ class Image(Base):
     video_generation_request = Column(JSONB, nullable=True)  # Seadance 1.0 video generation request
     error_message = Column(Text)
     status = Column(Enum('queued', 'processing', 'completed', 'failed', name='image_status'), nullable=False, index=True)
+    
+    # Video clip fields (for animated clips from static images)
+    video_clip_task_uuid = Column(String, nullable=True, index=True)  # Runware task UUID
+    video_clip_url = Column(String, nullable=True)  # Generated video clip URL
+    video_clip_status = Column(String, nullable=True)  # pending/processing/completed/failed
+    video_clip_cost = Column(Float, nullable=True)  # API cost tracking
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

@@ -308,7 +308,7 @@ class VideoGenerator:
             
             # Report progress after audio/transcription phase (50-60%)
             if progress_callback:
-                await progress_callback(0.91, "Processing clips...")
+                await progress_callback(0.52, "Processing clips...")
             
             # Image processing and clip creation phase
             start_clips = time.time()
@@ -318,73 +318,131 @@ class VideoGenerator:
                     continue
                 audio_clip = AudioFileClip(audio_file)
                 
-                # Download and use the image - detect extension from URL
-                image_url = scene['image']
-                image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
-                image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
-                downloaded_image = await download_image(image_url, image_path)
+                # Check if this scene has a video clip (animated) or just static image
+                video_clip_url = scene.get('video_clip_url')
                 
-                if downloaded_image is None:
-                    logger.error(f"Skipping scene {scene['scene_number']} due to image download failure")
-                    continue
+                if video_clip_url:
+                    # Use animated video clip
+                    logger.info(f"Using video clip for scene {scene['scene_number']}: {video_clip_url}")
+                    video_ext = '.mp4'
+                    video_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{video_ext}")
+                    downloaded_video = await download_image(video_clip_url, video_path)  # Reuse download function
+                    
+                    if downloaded_video is None or not os.path.exists(downloaded_video):
+                        logger.error(f"Failed to download video clip for scene {scene['scene_number']}, falling back to static image")
+                        video_clip_url = None  # Fall back to static image
+                    else:
+                        logger.info(f"Successfully downloaded video clip for scene {scene['scene_number']}: {downloaded_video}")
                 
-                # Validate the downloaded image file exists and has content
-                if not os.path.exists(downloaded_image) or os.path.getsize(downloaded_image) == 0:
-                    logger.error(f"Skipping scene {scene['scene_number']}: image file is missing or empty")
-                    continue
+                if not video_clip_url:
+                    # Download and use the static image
+                    image_url = scene['image']
+                    image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
+                    image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
+                    downloaded_image = await download_image(image_url, image_path)
+                if not video_clip_url:
+                    # Download and use the static image
+                    image_url = scene['image']
+                    image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
+                    image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
+                    downloaded_image = await download_image(image_url, image_path)
                 
-                logger.info(f"Successfully downloaded image for scene {scene['scene_number']}: {downloaded_image} ({os.path.getsize(downloaded_image)} bytes)")
+                    if downloaded_image is None:
+                        logger.error(f"Skipping scene {scene['scene_number']} due to image download failure")
+                        continue
+                
+                    # Validate the downloaded image file exists and has content
+                    if not os.path.exists(downloaded_image) or os.path.getsize(downloaded_image) == 0:
+                        logger.error(f"Skipping scene {scene['scene_number']}: image file is missing or empty")
+                        continue
+                
+                    logger.info(f"Successfully downloaded image for scene {scene['scene_number']}: {downloaded_image} ({os.path.getsize(downloaded_image)} bytes)")
                 
                 # Video dimensions (9:16 aspect ratio)
                 video_width = 1080
                 video_height = 1920
                 
                 try:
-                    # Create image clip and resize to fill the entire frame
-                    temp_clip = ImageClip(downloaded_image)
-                    
-                    # Validate image dimensions
-                    if temp_clip.w == 0 or temp_clip.h == 0:
-                        logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
-                        continue
-                    
-                    logger.info(f"Scene {scene['scene_number']} image dimensions: {temp_clip.w}x{temp_clip.h}")
-                    
-                    # Calculate scaling to fill frame (crop excess)
-                    clip_aspect = temp_clip.w / temp_clip.h
-                    video_aspect = video_width / video_height
-                    
-                    if clip_aspect > video_aspect:
-                        # Image is wider - scale by height and crop width
-                        new_width = int(temp_clip.w * (video_height / temp_clip.h))
-                        logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
-                        image_clip = (temp_clip
-                                     .resize(height=video_height)
-                                     .crop(x_center=new_width/2, width=video_width, height=video_height)
-                                     .set_duration(audio_clip.duration))
+                    if video_clip_url and os.path.exists(downloaded_video):
+                        # Use video clip - import VideoFileClip
+                        from moviepy.editor import VideoFileClip
+                        
+                        # Load the video clip
+                        temp_clip = VideoFileClip(downloaded_video)
+                        logger.info(f"Scene {scene['scene_number']} video clip dimensions: {temp_clip.w}x{temp_clip.h}, duration: {temp_clip.duration}s")
+                        
+                        # Calculate scaling to fill frame (crop excess)
+                        clip_aspect = temp_clip.w / temp_clip.h
+                        video_aspect = video_width / video_height
+                        
+                        if clip_aspect > video_aspect:
+                            # Video is wider - scale by height and crop width
+                            new_width = int(temp_clip.w * (video_height / temp_clip.h))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
+                            video_clip = (temp_clip
+                                         .resize(height=video_height)
+                                         .crop(x_center=new_width/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        else:
+                            # Video is taller - scale by width and crop height  
+                            new_height = int(temp_clip.h * (video_width / temp_clip.w))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
+                            video_clip = (temp_clip
+                                         .resize(width=video_width)
+                                         .crop(y_center=new_height/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        
+                        # Replace audio with generated speech
+                        video_clip = video_clip.set_audio(audio_clip)
+                        
                     else:
-                        # Image is taller - scale by width and crop height  
-                        new_height = int(temp_clip.h * (video_width / temp_clip.w))
-                        logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
-                        image_clip = (temp_clip
-                                     .resize(width=video_width)
-                                     .crop(y_center=new_height/2, width=video_width, height=video_height)
-                                     .set_duration(audio_clip.duration))
+                        # Use static image with zoom effect
+                        # Create image clip and resize to fill the entire frame
+                        temp_clip = ImageClip(downloaded_image)
                     
-                    # Combine image, text, and audio
-                    video_clip = image_clip.set_audio(audio_clip)
+                        # Validate image dimensions
+                        if temp_clip.w == 0 or temp_clip.h == 0:
+                            logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
+                            continue
+                        
+                        logger.info(f"Scene {scene['scene_number']} image dimensions: {temp_clip.w}x{temp_clip.h}")
+                        
+                        # Calculate scaling to fill frame (crop excess)
+                        clip_aspect = temp_clip.w / temp_clip.h
+                        video_aspect = video_width / video_height
+                        
+                        if clip_aspect > video_aspect:
+                            # Image is wider - scale by height and crop width
+                            new_width = int(temp_clip.w * (video_height / temp_clip.h))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
+                            image_clip = (temp_clip
+                                         .resize(height=video_height)
+                                         .crop(x_center=new_width/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        else:
+                            # Image is taller - scale by width and crop height  
+                            new_height = int(temp_clip.h * (video_width / temp_clip.w))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
+                            image_clip = (temp_clip
+                                         .resize(width=video_width)
+                                         .crop(y_center=new_height/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        
+                        # Combine image and audio
+                        video_clip = image_clip.set_audio(audio_clip)
                     
                     # Add audio fade in/out to prevent artifacts between clips
                     video_clip = video_clip.audio_fadein(0.1).audio_fadeout(0.1)
 
-                    # Apply transition effect
-                    transition_type = scene['transition_type']
+                    # Apply transition effect (only for static images, not video clips)
+                    transition_type = scene.get('transition_type', 'none')
                     
-                    logger.info(f"Adding clip for scene {scene['scene_number']} with transition: {transition_type}")
+                    logger.info(f"Adding clip for scene {scene['scene_number']} (type: {'video' if video_clip_url else 'image'}) with transition: {transition_type}")
                         
-                    if transition_type == 'zoom-in':
+                    # Only apply zoom transitions to static images
+                    if not video_clip_url and transition_type == 'zoom-in':
                         clips.append(zoom(video_clip))
-                    elif transition_type == 'zoom-out':
+                    elif not video_clip_url and transition_type == 'zoom-out':
                         clips.append(zoom(video_clip, mode='out'))
                     else:
                         clips.append(video_clip)
@@ -405,7 +463,7 @@ class VideoGenerator:
             # Add closing screen
             start_closing = time.time()
             if progress_callback:
-                await progress_callback(0.915, "Creating closing screen...")
+                await progress_callback(0.60, "Creating closing screen...")
             closing_screen = self.create_closing_screen(duration=4)
             if closing_screen:
                 clips.append(closing_screen)
@@ -417,7 +475,7 @@ class VideoGenerator:
                 clips[-2] = clips[-2].audio_fadeout(0.3)
             
             if progress_callback:
-                await progress_callback(0.918, "Combining clips...")
+                await progress_callback(0.70, "Combining clips...")
             
             start_concat = time.time()
             final_clip = concatenate_videoclips(clips, method="compose")
@@ -427,7 +485,7 @@ class VideoGenerator:
             # Optimized settings: faster preset, lower fps for speed
             start_encoding = time.time()
             if progress_callback:
-                await progress_callback(0.92, "Encoding video...")
+                await progress_callback(0.80, "Encoding video...")
             
             await asyncio.to_thread(
                 final_clip.write_videofile,
@@ -447,7 +505,7 @@ class VideoGenerator:
 
             start_captions = time.time()
             if progress_callback:
-                await progress_callback(0.96, "Adding captions...")
+                await progress_callback(0.90, "Adding captions...")
             
             subtitle_video_path = video_path.replace('.mp4', '_subtitle.mp4')
             await self.add_captions(video_path, subtitle_video_path, caption_font, custom_segments=subtitle_segments)

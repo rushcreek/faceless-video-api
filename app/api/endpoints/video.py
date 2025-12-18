@@ -96,3 +96,59 @@ async def get_task_status(task_id: str, current_user: dict = Depends(get_current
         created_at=task.created_at,
         updated_at=task.updated_at
     )
+
+@router.post("/video/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Cancel a running or queued video generation task.
+    This will mark the task as failed and stop further processing.
+    """
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check if task can be cancelled
+    if task.status in ["completed"]:
+        raise HTTPException(status_code=400, detail="Cannot cancel a completed task")
+    
+    if task.status == "failed":
+        raise HTTPException(status_code=400, detail="Task already failed")
+    
+    # Update task status to failed with cancellation message
+    await task.update(
+        task_id=task_id,
+        status="failed",
+        error_message="Task cancelled by user",
+        status_message="Task cancelled"
+    )
+    
+    return {
+        "task_id": task_id,
+        "status": "failed",
+        "message": "Task cancelled successfully"
+    }
+
+@router.get("/video/tasks")
+async def list_tasks(
+    limit: int = 20,
+    status: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    List all video generation tasks with optional status filter.
+    Returns tasks ordered by creation date (newest first).
+    """
+    tasks = await VideoTask.list_all(limit=limit, status_filter=status)
+    
+    return {
+        "tasks": [{
+            "task_id": task.id,
+            "status": task.status,
+            "progress": task.progress,
+            "status_message": task.status_message,
+            "custom_title": task.custom_title,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None
+        } for task in tasks],
+        "total": len(tasks)
+    }

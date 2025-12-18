@@ -20,12 +20,16 @@ class VideoTaskProcessor:
             self.client = AsyncAzureOpenAI(
                 azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
                 api_key=settings.AZURE_OPENAI_API_KEY,
-                api_version=settings.azure_api_version
+                api_version=settings.azure_api_version,
+                timeout=120.0,  # 2 minute timeout for API calls
+                max_retries=3   # Retry failed requests up to 3 times
             )
         else:
             self.client = AsyncOpenAI(
                 api_key=settings.OPENAI_API_KEY,
-                base_url=settings.OPENAI_BASE_URL
+                base_url=settings.OPENAI_BASE_URL,
+                timeout=120.0,  # 2 minute timeout for API calls
+                max_retries=3   # Retry failed requests up to 3 times
             )
         self.story_generator = StoryGenerator(self.client)
 
@@ -77,6 +81,12 @@ class VideoTaskProcessor:
             
             await task.update(task_id=task_id, progress=0.15, status_message="Characters created")
 
+            # Check if task was cancelled
+            task = await VideoTask.get(task_id)
+            if task.status == "failed":
+                logger.info(f"Task {task_id} was cancelled, stopping processing")
+                return
+
             # Step 3: Generate storyboard
             storyboard_project = await self.story_generator.generate_storyboard(
                 title, 
@@ -98,6 +108,11 @@ class VideoTaskProcessor:
             # Progress callback for image generation (30% to 45% = 15% total)
             total_images = len(storyboard_project.get("storyboards", []))
             async def image_progress_callback(completed, total):
+                # Check if task was cancelled
+                current_task = await VideoTask.get(task_id)
+                if current_task.status == "failed":
+                    logger.info(f"Task {task_id} was cancelled during image generation")
+                    raise ValueError("Task cancelled by user")
                 # Map image progress from 30% to 45%
                 progress = 0.30 + (0.15 * (completed / total))
                 await task.update(task_id=task_id, progress=round(progress, 2), status_message=f"Generating images ({completed}/{total})")
@@ -125,24 +140,30 @@ class VideoTaskProcessor:
             await asyncio.gather(*image_create_tasks)
             await task.update(task_id=task_id, progress=0.50, status_message="Images saved")
 
+            # Check if task was cancelled
+            task = await VideoTask.get(task_id)
+            if task.status == "failed":
+                logger.info(f"Task {task_id} was cancelled, stopping before video clip wait")
+                return
+
+            # Step 5.5: Wait for video clips to be generated
+            # This is a PLACEHOLDER - video clips will be generated via separate API call
+            # The final video generation should only happen AFTER video clips are ready
+            # For now, mark this task as "waiting_for_clips" and stop here
+            await task.update(
+                task_id=task_id, 
+                status="waiting_for_clips", 
+                progress=0.50, 
+                status_message="Images ready. Use /generate-video-clips endpoint to create animated clips, then /finalize-video to stitch them together."
+            )
+            return  # Stop here - don't create final video yet
+
             # Step 6: Generate and upload video
+            # THIS WILL BE CALLED BY A SEPARATE ENDPOINT AFTER VIDEO CLIPS ARE READY
             # Progress callback for video generation (50% to 98%)
             async def video_progress_callback(progress_value, message):
-                # Map internal video progress (0.90-0.98) to overall progress (50-98%)
-                # Internal: 0.91 -> 54%, 0.915 -> 62%, 0.918 -> 68%, 0.92 -> 70%, 0.96 -> 90%, 0.98 -> 98%
-                if progress_value <= 0.91:
-                    overall_progress = 0.50 + (progress_value - 0.90) * 40  # 0.90-0.91 -> 50-54%
-                elif progress_value <= 0.915:
-                    overall_progress = 0.54 + (progress_value - 0.91) * 160  # 0.91-0.915 -> 54-62%
-                elif progress_value <= 0.918:
-                    overall_progress = 0.62 + (progress_value - 0.915) * 200  # 0.915-0.918 -> 62-68%
-                elif progress_value <= 0.92:
-                    overall_progress = 0.68 + (progress_value - 0.918) * 100  # 0.918-0.92 -> 68-70%
-                elif progress_value <= 0.96:
-                    overall_progress = 0.70 + (progress_value - 0.92) * 5  # 0.92-0.96 -> 70-90%
-                else:
-                    overall_progress = 0.90 + (progress_value - 0.96) * 4  # 0.96-0.98 -> 90-98%
-                await task.update(task_id=task_id, progress=round(overall_progress, 2), status_message=message)
+                # Progress value is already in 0-1 range, just use it directly
+                await task.update(task_id=task_id, progress=round(progress_value, 2), status_message=message)
             
             video_path = await self.video_generator.generate_video(
                 storyboard_project, 
@@ -189,3 +210,93 @@ class VideoTaskProcessor:
             #     os.remove(video_path)
             # if 'story_dir' in locals() and os.path.exists(story_dir):
             #     shutil.rmtree(story_dir)
+
+    async def finalize_video_with_clips(self, task_id: str):
+        """
+        Finalize the video by stitching together video clips and static images.
+        This should be called AFTER video clips have been generated.
+        """
+        task = await VideoTask.get(task_id)
+        
+        try:
+            await task.update(task_id=task_id, status="processing", progress=0.55, status_message="Preparing to finalize video...")
+            
+            # Get all images/scenes for this task
+            images = await Image.list_by_task(task_id)
+            if not images:
+                raise ValueError("No scenes found for this task")
+            
+            # Recreate the storyboard structure needed for video generation
+            # This includes using video clips where available
+            storyboard_project = {
+                "project_info": {
+                    "title": task.custom_title or "Custom Story",
+                    "timestamp": task.created_at.strftime("%Y-%m-%d %I:%M:%S %p")
+                },
+                "storyboards": [],
+                "characters": []  # Not needed for finalization
+            }
+            
+            for idx, image in enumerate(images):
+                scene = {
+                    "scene_number": idx + 1,  # Add 1-based scene number for audio file naming
+                    "subtitles": image.subtitles or "",
+                    "description": image.subtitles or "",
+                    "enhanced_prompt": image.enhanced_prompt or "",
+                    "video_generation_request": image.video_generation_request,
+                    "video_clip_url": image.video_clip_url,  # Use video clip if available
+                    "image_url": image.urls[0] if image.urls else None,
+                    "urls": image.urls  # Keep original urls array for compatibility
+                }
+                storyboard_project["storyboards"].append(scene)
+            
+            # Create story directory
+            from app.utils.helpers import create_resource_dir
+            story_dir_name = task.story_style_descriptor or "custom"
+            story_dir = create_resource_dir(settings.STORY_DIR, story_dir_name, task.custom_title or "Video")
+            
+            # Progress callback
+            async def video_progress_callback(progress_value, message):
+                await task.update(task_id=task_id, progress=round(progress_value, 2), status_message=message)
+            
+            # Generate final video (will use video clips where available)
+            video_path = await self.video_generator.generate_video(
+                storyboard_project,
+                story_dir,
+                task.voice_name,
+                task.caption_font or 'BebasNeue',
+                progress_callback=video_progress_callback
+            )
+            
+            if not video_path:
+                raise ValueError("Failed to create final video")
+            
+            # Upload to R2
+            await task.update(task_id=task_id, progress=0.98, status_message="Uploading video...")
+            video_name = os.path.basename(os.path.normpath(story_dir))
+            object_name = f"videos/{task_id}/{video_name}.mp4"
+            r2_url = await self.storage_service.upload_to_r2(video_path, object_name)
+            logger.info(f"Final video uploaded to R2: {r2_url}")
+            
+            if not r2_url:
+                raise ValueError("Failed to upload video to R2")
+            
+            # Use public R2 URL format
+            public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
+            
+            # Update task with final video URL
+            update_data = {
+                "url": public_url,
+                "story_title": task.custom_title or task.story_title,
+                "story_description": task.story_description or f"A {task.story_style_descriptor} video story",
+                "status": "completed",
+                "progress": 1.0,
+                "status_message": "Video ready!"
+            }
+            await task.update(task_id=task_id, **update_data)
+            
+            logger.info(f"Video finalization completed for task {task_id}")
+            
+        except Exception as e:
+            logger.error(f"Error finalizing video: {str(e)}")
+            await task.update(task_id=task_id, status="failed", error_message=f"Finalization failed: {str(e)}")

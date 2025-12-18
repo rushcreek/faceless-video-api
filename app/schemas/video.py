@@ -5,7 +5,7 @@ from .image import ImageStatus
 from app.core.config import settings
 
 # Type aliases using str instead of Literal for dynamic config
-Status = Literal['queued', 'processing', 'completed', 'failed']
+Status = Literal['queued', 'processing', 'waiting_for_clips', 'completed', 'failed']
 Duration = Literal['short', 'long']
 
 class VideoRequest(BaseModel):

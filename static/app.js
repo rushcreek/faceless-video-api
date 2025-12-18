@@ -169,6 +169,11 @@ function switchTab(tabName) {
             btn.classList.add('active');
         }
     });
+    
+    // Refresh running tasks when status tab is opened
+    if (tabName === 'status') {
+        refreshRunningTasks();
+    }
 }
 
 // Clear form
@@ -708,6 +713,126 @@ function showAdminMessage(message, type) {
     setTimeout(() => {
         resultBox.style.display = 'none';
     }, 5000);
+}
+
+// Running Tasks Panel Functions
+async function refreshRunningTasks() {
+    const listContainer = document.getElementById('running-tasks-list');
+    listContainer.innerHTML = '<div class="loading-message">Loading tasks...</div>';
+    
+    try {
+        const token = await getAuthToken();
+        if (!token) {
+            listContainer.innerHTML = '<div class="loading-message" style="color: #f44336;">Authentication required</div>';
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks?limit=50`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            displayRunningTasks(data.tasks || []);
+        } else {
+            listContainer.innerHTML = '<div class="loading-message" style="color: #f44336;">Failed to load tasks</div>';
+        }
+    } catch (error) {
+        console.error('Error fetching tasks:', error);
+        listContainer.innerHTML = '<div class="loading-message" style="color: #f44336;">Error loading tasks</div>';
+    }
+}
+
+function displayRunningTasks(tasks) {
+    const listContainer = document.getElementById('running-tasks-list');
+    
+    // Filter active tasks (not completed or failed)
+    const activeTasks = tasks.filter(task => 
+        task.status === 'queued' || 
+        task.status === 'processing' || 
+        task.status === 'waiting_for_clips'
+    );
+    
+    if (activeTasks.length === 0) {
+        listContainer.innerHTML = '<div class="no-tasks-message">No active tasks</div>';
+        return;
+    }
+    
+    listContainer.innerHTML = activeTasks.map(task => {
+        const title = task.custom_title || 'Untitled Video';
+        const progress = task.progress || 0;
+        const statusMessage = task.status_message || '';
+        const createdAt = new Date(task.created_at).toLocaleString();
+        
+        return `
+            <div class="task-card">
+                <div class="task-info">
+                    <div class="task-title">${title}</div>
+                    <div class="task-id">ID: ${task.task_id}</div>
+                    <div class="task-meta">
+                        <span class="status-badge ${task.status}">${task.status.replace('_', ' ')}</span>
+                        <span class="task-progress">${progress}%</span>
+                        ${statusMessage ? `<span class="task-message">${statusMessage}</span>` : ''}
+                    </div>
+                    <div class="task-id" style="font-size: 0.75em; color: #999;">Created: ${createdAt}</div>
+                </div>
+                <div class="task-actions">
+                    <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
+                    <button class="btn-kill" onclick="confirmCancelTask('${task.task_id}')">Kill</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function viewTaskDetails(taskId) {
+    // Set the task ID in the lookup input
+    document.getElementById('status_task_id').value = taskId;
+    // Fetch the task status
+    fetchTaskStatus();
+}
+
+async function confirmCancelTask(taskId) {
+    if (!confirm(`Are you sure you want to cancel task ${taskId}?`)) {
+        return;
+    }
+    
+    await cancelTaskFromPanel(taskId);
+}
+
+async function cancelTaskFromPanel(taskId) {
+    try {
+        const token = await getAuthToken();
+        if (!token) {
+            alert('Authentication required');
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}/cancel`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            alert('Task cancelled successfully');
+            // Refresh the running tasks list
+            await refreshRunningTasks();
+            // If this was the current task being viewed, update the status display
+            if (currentTaskId === taskId) {
+                fetchTaskStatus();
+            }
+        } else {
+            const error = await response.json();
+            alert(`Failed to cancel task: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error cancelling task:', error);
+        alert('Error cancelling task. Please try again.');
+    }
 }
 
 // Initialize on page load

@@ -1,0 +1,62 @@
+{
+  "task_id": "709841fb-7582-4cf4-a730-eb6ec5c73ffb",
+  "total_scenes": 4,
+  "scenes": [
+    {
+      "scene_id": "1ef76843-3988-43dc-87b8-0172456dbb8b",
+      "image_url": "https://im.runware.ai/image/ws/2/ii/c9a0f823-e24b-418e-aa2b-c3d3c12426b5.jpg",
+      "enhanced_prompt": "A cinematic panorama depicts a bustling cityscape at dawn, where shadows gradually lift as the first light of day creeps over skyscrapers. The camera captures the interplay of light and shadow on the facades, setting a tone of emerging clarity against chaos. | inspirational cinematic | Camera: bird's eye view, establishing shot, extreme long shot | Lighting: natural lighting | focus on doing versus merely knowing.",
+      "video_generation": {
+        "fps": 24,
+        "prompt": "The video starts with a slow, smooth pan across a bustling cityscape at dawn. The camera captures the gradual transition of shadows lifting as the soft, warm light of the rising sun begins to wash over the towering skyscrapers. The interplay of light and shadow on the building facades is subtle yet dynamic, creating a rhythmic dance of clarity against chaos. A gentle tilt reveals a sky with softly drifting clouds, mirroring the calmness of the early morning. The city below is waking up with slight movements; leaves rustle gently in a mild breeze, and distant vehicles begin their morning commute, their movements fluid and natural. The lighting shifts subtly, enhancing the gradual transformation from night to day, bringing a sense of serene awakening to the scene.",
+        "duration": 5,
+        "guidance_scale": 7.5,
+        "negative_prompt": "Avoid abrupt camera movements, overly dramatic lighting changes, and unnatural subject jitter.",
+        "num_inference_steps": 50
+      },
+      "created_at": "2025-12-17 16:53:26.783692-06:00"
+    },
+    {
+      "scene_id": "eda86efb-1906-41a6-9c29-0ed4dfd06db1",
+      "image_url": "https://im.runware.ai/image/ws/2/ii/7d7b40c3-479b-422b-b366-721050558d61.jpg",
+      "enhanced_prompt": "A cluttered desk with scattered papers and an unanswered phone call serves as a cinematic metaphor for imprecision\u2019s escalating cost. | inspirational cinematic | Camera: high angle, insert shot, close-up | Lighting: low-key lighting | focus on doing versus merely knowing.",
+      "video_generation": {
+        "fps": 24,
+        "prompt": "The scene begins with a slow, steady pan across a cluttered desk, emphasizing the chaos of scattered papers and the blinking light of an unanswered phone. The camera gently tilts downward, focusing on the shuffle of papers as a subtle breeze lightly rustles them, creating a sense of unresolved tension. Ambient sounds are present, with the faint hum of an office setting. The lighting is soft but slightly dimmed, casting shadows that deepen the contrast of the scene, hinting at the cost of imprecision. Midway, a slow zoom centers on the blinking phone, capturing the viewer\u2019s attention with its persistent yet unanswered call. The entire motion is smooth, maintaining a cinematic quality that conveys the escalating stakes without overt dramatics.",
+        "duration": 5,
+        "guidance_scale": 7.5,
+        "negative_prompt": "avoid sudden or jerky movements, overly dramatic lighting changes, exaggerated shadows, unrealistic or excessive environmental effects",
+        "num_inference_steps": 50
+      },
+      "created_at": "2025-12-17 16:53:26.835426-06:00"
+    },
+    {
+      "scene_id": "1107f45a-d91c-424e-9719-e286c361af45",
+      "image_url": "https://im.runware.ai/image/ws/2/ii/30534375-e9d0-4cad-b04c-66ba03959312.jpg",
+      "enhanced_prompt": "The scene portrays a lone individual against the backdrop of an empty street at dusk, cinematically rendered, representing the fleeting security of avoidance. | inspirational cinematic | Camera: low angle, single shot, long shot | Lighting: rim lighting | focus on doing versus merely knowing.",
+      "video_generation": {
+        "fps": 24,
+        "prompt": "The video begins with a wide-angle shot of a lone individual standing on an empty street at dusk, captured in a cinematic style. The camera executes a subtle pan from left to right, emphasizing the vast emptiness surrounding the person. As it settles, a slow zoom-in commences, focusing on the individual's contemplative expression. Their posture suggests introspection, hands resting calmly by their sides. A gentle breeze ruffles their clothes, adding a touch of motion to the scene. The street is lined with dormant trees, their leaves rustling softly in the wind. The sky, painted in hues of orange and pink, shows gradually shifting clouds, enhancing the serene yet fleeting mood of dusk. Lighting remains consistent, with natural ambient shifts as the sun continues its descent. The overall pacing is smooth, fostering a deep sense of quiet and reflection.",
+        "duration": 5,
+        "guidance_scale": 7.5,
+        "negative_prompt": "avoid abrupt or jerky camera movements, exaggerated facial expressions, unnatural lighting changes, overly dramatic gestures, or animated effects that break the cinematic realism.",
+        "num_inference_steps": 50
+      },
+      "created_at": "2025-12-17 16:53:26.875657-06:00"
+    },
+    {
+      "scene_id": "1e09e2b2-d2f6-44b8-8ee8-bf602feb9a74",
+      "image_url": "https://im.runware.ai/image/ws/2/ii/e438e5a2-35e4-417c-99e0-8cbf785f08e5.jpg",
+      "enhanced_prompt": "Cinematic emphasis is placed on a sunrise view through an office window, symbolizing the dawn of understanding and the empowerment it bestows on leadership. | inspirational cinematic | Camera: low angle, single shot, long shot | Lighting: three-point lighting | focus on doing versus merely knowing.",
+      "video_generation": {
+        "fps": 24,
+        "prompt": "The scene opens with a slow, gentle zoom towards an expansive office window, capturing the vibrant hues of sunrise flooding the room. A subtle pan to the right reveals the silhouettes of nearby buildings, enhancing the perspective of dawn breaking over the cityscape. As the sun's rays increasingly illuminate the office, lens flares create a soft glow, symbolizing enlightenment. Wisps of morning clouds drift lazily across the sky, adding depth to the tranquil setting. The camera tilts slightly downward, revealing a desk with a few scattered papers, gently rustling as if touched by a faint morning breeze. The overall lighting gradually warms, reflecting the empowerment theme, while maintaining a smooth and cinematic quality throughout.",
+        "duration": 5,
+        "guidance_scale": 7.5,
+        "negative_prompt": "Avoid jarring movements, overly fast transitions, unrealistic lighting shifts, and exaggerated environmental effects that could distract from the serene, empowering mood.",
+        "num_inference_steps": 50
+      },
+      "created_at": "2025-12-17 16:53:26.882170-06:00"
+    }
+  ]
+}

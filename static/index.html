@@ -95,10 +95,26 @@
         <!-- Task Status Tab -->
         <div id="status-tab" class="tab-content">
             <h2>Check Task Status</h2>
-            <div class="form-group">
-                <label for="status_task_id">Task ID:</label>
-                <input type="text" id="status_task_id" placeholder="Enter task ID">
-                <button class="btn btn-primary" onclick="fetchTaskStatus()">Check Status</button>
+            
+            <!-- Running Tasks Panel -->
+            <div class="running-tasks-panel">
+                <div class="panel-header">
+                    <h3>🔄 Active Tasks</h3>
+                    <button class="btn btn-secondary btn-small" onclick="refreshRunningTasks()">🔄 Refresh</button>
+                </div>
+                <div id="running-tasks-list" class="running-tasks-list">
+                    <p class="loading-message">Loading tasks...</p>
+                </div>
+            </div>
+
+            <!-- Task Status Lookup -->
+            <div class="task-lookup-section">
+                <h3>Look up Task by ID</h3>
+                <div class="form-group">
+                    <label for="status_task_id">Task ID:</label>
+                    <input type="text" id="status_task_id" placeholder="Enter task ID">
+                    <button class="btn btn-primary" onclick="fetchTaskStatus()">Check Status</button>
+                </div>
             </div>
 
             <div id="status-result" class="status-container"></div>

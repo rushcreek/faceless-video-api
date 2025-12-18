@@ -92,3 +92,13 @@ class VideoTask(Base):
             query = select(cls).filter(cls.status == status)
             result = await session.execute(query)
             return result.scalars().all()
+
+    @classmethod
+    async def list_all(cls, limit: int = 20, status_filter: Optional[str] = None) -> List['VideoTask']:
+        """List all tasks ordered by creation date, with optional status filter"""
+        async with async_session() as session:
+            query = select(cls).order_by(cls.created_at.desc()).limit(limit)
+            if status_filter:
+                query = query.filter(cls.status == status_filter)
+            result = await session.execute(query)
+            return result.scalars().all()
