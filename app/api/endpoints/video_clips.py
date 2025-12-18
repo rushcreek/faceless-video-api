@@ -207,8 +207,9 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         key=lambda s: s.audio_duration if s.audio_duration else 0
                     )
                     scenes_to_animate.append(interesting_scene)
+                    duration_str = f"{interesting_scene.audio_duration:.2f}" if interesting_scene.audio_duration else "N/A"
                     logger.info(f"Selected interesting middle scene: {interesting_scene.scene_number} "
-                              f"(duration: {interesting_scene.audio_duration:.2f}s)")
+                              f"(duration: {duration_str}s)")
             
             logger.info(f"Generating video clips for {len(scenes_to_animate)} scenes")
             
