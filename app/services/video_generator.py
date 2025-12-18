@@ -16,7 +16,8 @@ from app.utils.transitions import zoom
 from app.core.config import settings
 from app.core.logging import logger
 from app.utils.image_utils import download_image
-from PIL import Image
+from app.models.image import Image
+from PIL import Image as PILImage
 import json
 import openai
 from difflib import SequenceMatcher
@@ -150,8 +151,8 @@ class VideoGenerator:
             appstore_path = os.path.join(self.assets_path, "appstore.png")
             
             # Open images with PIL to get dimensions
-            prlogo_img = Image.open(prlogo_path)
-            appstore_img = Image.open(appstore_path)
+            prlogo_img = PILImage.open(prlogo_path)
+            appstore_img = PILImage.open(appstore_path)
             
             # Video dimensions (9:16 aspect ratio)
             video_width = 1080
@@ -605,7 +606,7 @@ class VideoGenerator:
         for clip in text_clips:
             clip.close()
 
-    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None):
+    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None, task_id=None):
         audio_dir = os.path.join(story_dir, "audio")
         os.makedirs(audio_dir, exist_ok=True)
         video_path = os.path.join(story_dir, "story_video.mp4")
@@ -625,10 +626,15 @@ class VideoGenerator:
             for scene in storyboard_project['storyboards']:
                 # Generate audio for the subtitle
                 audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
-                success = await self.audio_generator.generate_audio(scene['subtitles'], audio_file, voice_name)
-                if not success:
-                    logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
-                    continue
+                
+                # Check if audio already exists (from earlier processing step)
+                if os.path.exists(audio_file):
+                    logger.info(f"♻️ Audio file already exists for scene {scene['scene_number']}, skipping generation")
+                else:
+                    success = await self.audio_generator.generate_audio(scene['subtitles'], audio_file, voice_name)
+                    if not success:
+                        logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
+                        continue
 
                 # Create audio clip to get duration
                 audio_clip = AudioFileClip(audio_file)
@@ -637,6 +643,16 @@ class VideoGenerator:
                 # Store duration in scene for later use
                 scene['audio_duration'] = duration
                 logger.info(f"Scene {scene['scene_number']} audio duration: {duration:.2f}s")
+                
+                # Update database with audio duration if task_id is provided
+                # (only if not already set - avoid unnecessary DB writes)
+                if task_id and scene.get('audio_duration') != duration:
+                    await Image.update_by_task_and_scene(
+                        task_id=task_id,
+                        scene_number=scene['scene_number'],
+                        audio_duration=duration
+                    )
+                    logger.info(f"✅ Updated database: scene {scene['scene_number']} audio_duration={duration:.2f}s")
                 
                 # Transcribe audio with Whisper to get accurate word-level timing
                 logger.info(f"Transcribing scene {scene['scene_number']} for accurate timing...")
@@ -808,7 +824,7 @@ class VideoGenerator:
                     video_clip = video_clip.audio_fadein(0.1).audio_fadeout(0.1)
 
                     # Apply transition effect (only for static images, not video clips)
-                    transition_type = scene.get('transition_type', 'none')
+                    transition_type = scene.get('transition_type', 'zoom-in')  # Default to zoom-in for static images
                     
                     logger.info(f"Adding clip for scene {scene['scene_number']} (type: {'video' if video_clip_url else 'image'}) with transition: {transition_type}")
                         

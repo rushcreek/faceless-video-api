@@ -21,15 +21,18 @@ def create_resource_dir(base_dir: str, story_type: str, title: str) -> str:
 
     return story_dir
 
-async def call_openai_api(client, messages, max_retries=3, timeout=120):
+async def call_openai_api(client, messages, model=None, max_retries=3, timeout=120):
     import asyncio
+    
+    # Use provided model or fall back to settings default
+    selected_model = model if model is not None else settings.openai.get('model')
     
     for attempt in range(max_retries):
         try:
             # Add timeout to prevent hanging indefinitely
             response = await asyncio.wait_for(
                 client.chat.completions.create(
-                    model=settings.openai.get('model'),
+                    model=selected_model,
                     temperature=settings.openai.get('temperature'),
                     messages=messages,
                     timeout=timeout  # Client-side timeout

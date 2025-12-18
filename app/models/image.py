@@ -87,3 +87,25 @@ class Image(Base):
             query = select(cls).filter(cls.task_id == task_id, cls.status == status)
             result = await session.execute(query)
             return result.scalars().all()
+
+    @classmethod
+    async def update_by_task_and_scene(cls, task_id: str, scene_number: int, **kwargs) -> Optional['Image']:
+        """Update an image by task_id and scene_number"""
+        try:
+            async with async_session() as session:
+                query = select(cls).filter(cls.task_id == task_id, cls.scene_number == scene_number)
+                result = await session.execute(query)
+                image = result.scalar_one_or_none()
+                if image:
+                    for key, value in kwargs.items():
+                        setattr(image, key, value)
+                    await session.commit()
+                    await session.refresh(image)
+                    logger.info(f"Updated image for task {task_id} scene {scene_number}: {kwargs}")
+                    return image
+                else:
+                    logger.warning(f"No image found for task {task_id} scene {scene_number}")
+                    return None
+        except SQLAlchemyError as e:
+            logger.error(f"Error updating image by task and scene: {e}")
+            return None

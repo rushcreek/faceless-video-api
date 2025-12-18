@@ -41,9 +41,23 @@ async def generate_video_from_image(
     for attempt in range(max_retries):
         runware = None
         try:
-            logger.info(f"Generating video from image via Runware SDK (attempt {attempt + 1}/{max_retries})")
-            logger.debug(f"Image URL: {image_url}")
-            logger.debug(f"Prompt: {prompt[:100]}...")
+            logger.info(f"🎬 Runware SDK: Generating video from image (attempt {attempt + 1}/{max_retries})")
+            logger.info(f"   Image URL: {image_url}")
+            logger.info(f"   Prompt: {prompt}")
+            logger.info(f"   Duration: {duration}s ⏱️")
+            logger.info(f"   FPS: {fps}")
+            logger.info(f"   Dimensions: {width}x{height}")
+            
+            # Validate duration
+            if not isinstance(duration, int):
+                logger.warning(f"   ⚠️ Duration must be integer, got {type(duration)}. Converting...")
+                duration = int(duration)
+            
+            if duration < 1 or duration > 10:
+                logger.warning(f"   ⚠️ Duration {duration}s out of range (1-10), capping")
+                duration = max(1, min(10, duration))
+            
+            logger.info(f"   ✅ Final duration for API: {duration}s")
             
             # Initialize Runware client
             runware = Runware(api_key=settings.RUNWARE_API_KEY)
@@ -63,15 +77,23 @@ async def generate_video_from_image(
                 uploadEndpoint="runway"
             )
             
+            logger.info(f"   📤 Request parameters:")
+            logger.info(f"      Model: bytedance:2@1")
+            logger.info(f"      Duration: {duration}s")
+            logger.info(f"      FPS: {fps}")
+            logger.info(f"      Total frames: {duration * fps}")
+            
             # Generate video - SDK handles WebSocket connection internally
-            logger.info("Sending video generation request...")
+            logger.info("   🚀 Sending video generation request...")
             result = await runware.videoInference(requestVideo=request_video)
             
             # Check if result is async task response (video still processing)
             if hasattr(result, '__class__') and 'IAsyncTaskResponse' in str(result.__class__):
                 task_uuid = result.taskUUID
-                logger.info(f"Video generation task submitted successfully with UUID: {task_uuid}")
-                logger.info(f"Polling for completion (typically 60-90 seconds)...")
+                logger.info(f"   ✅ Video generation task submitted successfully")
+                logger.info(f"      TaskUUID: {task_uuid}")
+                logger.info(f"      Expected generation time: ~{duration * 30} seconds")
+                logger.info(f"   ⏳ Polling for completion...")
                 
                 # Poll for results - optimized for 90-second generation time
                 max_poll_attempts = 60  # 60 attempts * 3 seconds = 3 minutes max

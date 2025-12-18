@@ -12,6 +12,10 @@ class StoryGenerator:
     def __init__(self, client):
         self.client = client
         self.config = settings
+        # Model configuration for different tasks
+        self.character_model = "gpt-4o-mini"
+        self.video_prompt_model = "gpt-4o-mini"
+        self.storyboard_model = "gpt-4o"
 
     async def generate_characters(self, story: str) -> List[Dict[str, str]]:
         prompt = f"""Based on the following story, create detailed descriptions for each character, including their name, ethnicity, gender, age, facial features, body type, hair style, and accessories. Focus on permanent or long-term attributes.
@@ -66,7 +70,7 @@ class StoryGenerator:
             {"role": "user", "content": prompt},
         ]
 
-        response = await call_openai_api(self.client, messages)
+        response = await call_openai_api(self.client, messages, model=self.character_model)
         if not response:
             logger.error("API returned empty response")
         
@@ -134,7 +138,7 @@ Return ONLY the JSON object, no other text."""
             {"role": "user", "content": prompt},
         ]
 
-        response = await call_openai_api(self.client, messages)
+        response = await call_openai_api(self.client, messages, model=self.video_prompt_model)
         if not response:
             logger.error("API returned empty response for video prompt")
             return self._create_default_video_request()
@@ -291,7 +295,7 @@ Return ONLY the JSON object, no other text."""
             {"role": "user", "content": prompt},
         ]
 
-        response = await call_openai_api(self.client, messages)
+        response = await call_openai_api(self.client, messages, model=self.storyboard_model)
         if not response:
             logger.error("API returned empty response")
             return create_empty_storyboard(title)

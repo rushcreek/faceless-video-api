@@ -216,6 +216,8 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
             # Generate video clips in parallel
             async def generate_clip_for_scene(scene):
                 try:
+                    logger.info(f"🎥 Processing scene {scene.scene_number}")
+                    
                     # Get image URL
                     urls = scene.urls
                     if not urls or len(urls) == 0:
@@ -225,9 +227,19 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                     image_url = urls[0]
                     
                     # Get duration from audio (fallback to 2 seconds if not available)
-                    scene_duration = int(scene.audio_duration) if scene.audio_duration else 2
-                    logger.info(f"Scene {scene.scene_number}: Using duration {scene_duration}s "
-                              f"(audio_duration: {scene.audio_duration})")
+                    duration = scene.audio_duration or 2
+                    logger.info(f"  📏 Scene duration from DB: {duration}s (audio_duration: {scene.audio_duration})")
+                    
+                    # Validate duration
+                    if duration < 1:
+                        logger.warning(f"  ⚠️ Duration {duration}s too short, using minimum 2s")
+                        duration = 2
+                    elif duration > 10:
+                        logger.warning(f"  ⚠️ Duration {duration}s too long, capping at 10s")
+                        duration = 10
+                    
+                    scene_duration = int(duration)
+                    logger.info(f"  ✅ Using duration: {scene_duration}s for Runware API")
                     
                     # For animated scenes, create a video generation prompt
                     # Use existing video_generation_request if available, otherwise create basic one
@@ -247,9 +259,9 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         scene_to_update.video_clip_status = 'processing'
                         await update_session.commit()
                     
-                    logger.info(f"Generating {scene_duration}s video clip for scene {scene.scene_number}")
-                    logger.debug(f"Image: {image_url}")
-                    logger.debug(f"Prompt: {prompt[:100]}...")
+                    logger.info(f"  🎬 Generating {scene_duration}s video clip for scene {scene.scene_number}")
+                    logger.debug(f"  Image: {image_url}")
+                    logger.debug(f"  Prompt: {prompt[:100]}...")
                     
                     # Generate video clip with actual scene duration
                     async with async_session() as check_session:
@@ -266,7 +278,7 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                     async with async_session() as final_check_session:
                         final_scene = await final_check_session.get(Image, scene.id)
                         if final_scene and final_scene.video_clip_status in ['failed', 'cancelled']:
-                            logger.info(f"Video clip generation for scene {scene.scene_number} was cancelled")
+                            logger.info(f"  ℹ️ Video clip generation for scene {scene.scene_number} was cancelled")
                             return
                     
                     # Update scene with result

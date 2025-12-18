@@ -153,14 +153,35 @@ class VideoTaskProcessor:
             # Check if task was cancelled
             task = await VideoTask.get(task_id)
             if task.status == "failed":
-                logger.info(f"Task {task_id} was cancelled, stopping before video clip generation")
+                logger.info(f"Task {task_id} was cancelled, stopping before audio generation")
                 return
 
-            # Step 5.5: Generate video clips automatically for first, last, and one middle scene
+            # Step 5.5: Generate audio files and update durations in database
+            await task.update(
+                task_id=task_id,
+                progress=0.50,
+                status_message="Generating audio for scenes..."
+            )
+            
+            try:
+                await self.generate_audio_for_scenes(task_id, voice_name)
+                logger.info(f"✅ Audio generation and duration update completed for task {task_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to generate audio: {str(e)}", exc_info=True)
+                # Continue without audio - finalization will regenerate if needed
+                logger.warning(f"Continuing task {task_id} - audio will be regenerated during finalization")
+
+            # Check if task was cancelled
+            task = await VideoTask.get(task_id)
+            if task.status == "failed":
+                logger.info(f"Task {task_id} was cancelled after audio generation")
+                return
+
+            # Step 5.6: Generate video clips automatically for first, last, and one middle scene
             await task.update(
                 task_id=task_id, 
                 status="processing", 
-                progress=0.50, 
+                progress=0.52, 
                 status_message="Generating video clips for key scenes..."
             )
             
@@ -181,7 +202,7 @@ class VideoTaskProcessor:
                 logger.info(f"Task {task_id} was cancelled during video clip generation")
                 return
             
-            # Step 5.6: Automatically finalize the video
+            # Step 5.7: Automatically finalize the video
             await task.update(
                 task_id=task_id,
                 progress=0.55,
@@ -212,6 +233,70 @@ class VideoTaskProcessor:
             #     os.remove(video_path)
             # if 'story_dir' in locals() and os.path.exists(story_dir):
             #     shutil.rmtree(story_dir)
+
+    async def generate_audio_for_scenes(self, task_id: str, voice_name: str):
+        """
+        Generate audio files for all scenes and update their durations in the database.
+        This should be called BEFORE video clip generation so clips have correct durations.
+        Audio files are saved to the task's story directory for reuse during finalization.
+        """
+        from app.services.audio_generator import AudioGenerator
+        from moviepy.editor import AudioFileClip
+        
+        # Get task to determine story directory
+        task = await VideoTask.get(task_id)
+        if not task:
+            logger.error(f"Task {task_id} not found")
+            return
+        
+        # Get all images for this task
+        images = await Image.list_by_task(task_id)
+        if not images:
+            logger.warning(f"No images found for task {task_id}")
+            return
+        
+        # Sort by scene number
+        images.sort(key=lambda x: x.scene_number or 0)
+        
+        # Create story directory to store audio files
+        from app.utils.helpers import create_resource_dir
+        story_dir_name = task.story_style_descriptor or "custom"
+        story_dir = create_resource_dir(settings.STORY_DIR, story_dir_name, task.custom_title or "Video")
+        audio_dir = os.path.join(story_dir, "audio")
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        audio_generator = AudioGenerator()
+        
+        for image in images:
+            if not image.subtitles:
+                logger.warning(f"No subtitles for scene {image.scene_number}, skipping audio generation")
+                continue
+            
+            # Generate audio file to permanent location
+            audio_file = os.path.join(audio_dir, f"scene_{image.scene_number}.mp3")
+            
+            logger.info(f"Generating audio for scene {image.scene_number}: {image.subtitles[:50]}...")
+            await audio_generator.generate_audio(
+                text=image.subtitles,
+                output_file=audio_file,
+                voice_name=voice_name
+            )
+            
+            # Get duration from audio file
+            if os.path.exists(audio_file):
+                audio_clip = AudioFileClip(audio_file)
+                duration = audio_clip.duration
+                audio_clip.close()
+                
+                # Update database with duration
+                await Image.update_by_task_and_scene(
+                    task_id=task_id,
+                    scene_number=image.scene_number,
+                    audio_duration=duration
+                )
+                logger.info(f"✅ Scene {image.scene_number}: audio duration {duration:.2f}s saved to database")
+            else:
+                logger.error(f"Audio file not created for scene {image.scene_number}")
 
     async def finalize_video_with_clips(self, task_id: str):
         """
@@ -279,7 +364,8 @@ class VideoTaskProcessor:
                 story_dir,
                 task.voice_name,
                 task.caption_font or 'BebasNeue',
-                progress_callback=video_progress_callback
+                progress_callback=video_progress_callback,
+                task_id=task_id
             )
             
             if not video_path:
