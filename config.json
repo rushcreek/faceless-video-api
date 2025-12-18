@@ -48,34 +48,34 @@
     },
     "voices": [
       {
-        "id": "barbershop-man",
-        "name": "Barbershop Man",
-        "cartesia_id": "a0e99841-438c-4a64-b679-ae501e7d6091"
-      },
-      {
-        "id": "calm-lady",
-        "name": "Calm Lady",
-        "cartesia_id": "79a125e8-cd45-4c13-8a67-188112f4dd22"
-      },
-      {
-        "id": "female-conversational",
-        "name": "Female Conversational",
+        "id": "theo",
+        "name": "Theo",
         "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
       },
       {
-        "id": "female-narrator",
-        "name": "Female Narrator",
-        "cartesia_id": "156fb8d2-335b-4950-9cb3-a2d33befec77"
+        "id": "dan-wegner",
+        "name": "Dan Wegner",
+        "cartesia_id": "5c8a9524-f70f-43d9-ac2f-f1ee06db3642"
       },
       {
-        "id": "male-conversational",
-        "name": "Male Conversational",
+        "id": "cathy",
+        "name": "Cathy",
+        "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
+      },
+      {
+        "id": "tessa",
+        "name": "Tessa",
+        "cartesia_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"
+      },
+      {
+        "id": "dana",
+        "name": "Dana",
         "cartesia_id": "95856005-0332-41b0-935f-352e296aa0df"
       },
       {
-        "id": "male-narrator",
-        "name": "Male Narrator",
-        "cartesia_id": "820a3788-2b37-4d21-847a-b65d8a68c99a"
+        "id": "spencer",
+        "name": "Spencer Brit",
+        "cartesia_id": "3bf35adc-bcc4-464b-b834-c90c88cf6492"
       },
       {
         "id": "friendly-sidekick",

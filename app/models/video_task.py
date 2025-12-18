@@ -29,6 +29,7 @@ class VideoTask(Base):
     error_message = Column(Text)
     status_message = Column(String, nullable=True)
     progress = Column(Float, default=0.0)
+    total_cost = Column(Float, nullable=True, default=0.0)  # Total cost for all API calls
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

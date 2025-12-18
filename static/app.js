@@ -867,6 +867,7 @@ function displayRunningTasks(tasks) {
             const title = task.story_title || task.custom_title || 'Untitled Video';
             const createdAt = new Date(task.created_at).toLocaleString();
             const completedAt = task.updated_at ? new Date(task.updated_at).toLocaleString() : createdAt;
+            const costDisplay = task.total_cost != null ? `<div class="task-cost">💰 Cost: $${task.total_cost.toFixed(4)}</div>` : '';
             
             return `
                 <div class="task-card">
@@ -876,6 +877,7 @@ function displayRunningTasks(tasks) {
                         <div class="task-meta">
                             <span class="status-badge ${task.status}">${task.status}</span>
                         </div>
+                        ${costDisplay}
                         <div class="task-id" style="font-size: 0.75em; color: #999;">Completed: ${completedAt}</div>
                     </div>
                     <div class="task-actions">

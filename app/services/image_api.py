@@ -55,14 +55,16 @@ async def replicate_flux_api(task_id: str, prompt: str, max_retries: int = 3) ->
     return None
 
 
-async def runware_flux_api(task_id: str, prompt: str, max_retries: int = 3) -> Optional[str]:
+async def runware_flux_api(task_id: str, prompt: str, max_retries: int = 3) -> Optional[dict]:
     """Generate a single image using Runware.ai Flux model (kept for compatibility)"""
-    result = await runware_flux_batch_api(task_id, [prompt], max_retries)
-    return result[0] if result and len(result) > 0 else None
+    results = await runware_flux_batch_api(task_id, [prompt], max_retries)
+    return results[0] if results and len(results) > 0 else None
 
 
-async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: int = 3) -> list[Optional[str]]:
-    """Generate multiple images in parallel using Runware.ai Flux model with async streaming"""
+async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: int = 3) -> list[Optional[dict]]:
+    """Generate multiple images in parallel using Runware.ai Flux model with async streaming
+    Returns list of dicts with format: {"url": image_url, "cost": cost}
+    """
     
     for attempt in range(max_retries):
         runware = None
@@ -73,8 +75,8 @@ async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: 
             
             logger.info(f"🚀 Runware connected for task {task_id}, starting PARALLEL generation of {len(prompts)} images...")
             
-            async def generate_single(prompt: str, index: int) -> Optional[str]:
-                """Generate a single image and return URL"""
+            async def generate_single(prompt: str, index: int) -> Optional[dict]:
+                """Generate a single image and return URL and cost"""
                 try:
                     request_image = IImageInference(
                         positivePrompt=prompt,
@@ -90,6 +92,11 @@ async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: 
                     images = await runware.imageInference(requestImage=request_image)
                     
                     if images and len(images) > 0:
+                        # Log full response to discover cost fields
+                        logger.debug(f"📊 Full Runware image response for image {index+1}: {images[0]}")
+                        if hasattr(images[0], '__dict__'):
+                            logger.debug(f"📊 Response attributes: {images[0].__dict__}")
+                        
                         # Extract URL from response
                         image_url = None
                         if hasattr(images[0], 'imageURL'):
@@ -101,9 +108,21 @@ async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: 
                         elif isinstance(images[0], dict):
                             image_url = images[0].get('imageURL') or images[0].get('image_url') or images[0].get('url')
                         
+                        # Extract cost from response (similar to video SDK)
+                        cost = None
+                        if hasattr(images[0], 'cost'):
+                            cost = images[0].cost
+                        elif hasattr(images[0], 'credits'):
+                            cost = images[0].credits
+                        elif isinstance(images[0], dict):
+                            cost = images[0].get('cost') or images[0].get('credits')
+                        
+                        if cost is not None:
+                            logger.info(f"💰 Image {index+1} cost: ${cost:.6f}")
+                        
                         if image_url:
                             logger.info(f"✅ Parallel image {index+1}/{len(prompts)} completed: {image_url}")
-                            return image_url
+                            return {"url": image_url, "cost": cost}
                         else:
                             logger.error(f"❌ Could not extract URL from image {index+1}")
                             return None
@@ -125,16 +144,16 @@ async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: 
             )
             
             # Convert exceptions to None
-            image_urls = [
-                url if not isinstance(url, Exception) else None 
-                for url in results
+            image_results = [
+                result if not isinstance(result, Exception) else None 
+                for result in results
             ]
             
             elapsed = time.time() - start_time
-            successful = sum(1 for url in image_urls if url)
+            successful = sum(1 for result in image_results if result)
             logger.info(f"✅ Parallel generation complete: {successful}/{len(prompts)} successful in {elapsed:.2f}s")
             
-            return image_urls
+            return image_results
                 
         except Exception as e:
             if attempt < max_retries - 1:

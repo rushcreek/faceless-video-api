@@ -60,11 +60,11 @@ class VideoTaskProcessor:
             # Step 1: Use custom story (now required)
             story = custom_story
             title = custom_title if custom_title else "Custom Story"
-            description = f"A custom video story #facelessvideos.app"
+            description = f"A custom video story #danwegner.com"
             
             # Add style descriptor to description if provided
             if story_style_descriptor:
-                description = f"A {story_style_descriptor} video story #facelessvideos.app"
+                description = f"A {story_style_descriptor} video story #danwegner.com"
             
             logger.info(f"Processing task {task_id} with story_style_descriptor: {story_style_descriptor}")
             
@@ -144,6 +144,7 @@ class VideoTaskProcessor:
                     "enhanced_prompt": storyboard_scene.get("enhanced_prompt", ""),
                     "video_generation_request": storyboard_scene.get("video_generation_request"),
                     "audio_duration": storyboard_scene.get("audio_duration"),  # Store scene duration from audio
+                    "image_generation_cost": storyboard_scene.get("image_generation_cost"),  # Store image generation cost
                     "error_message": storyboard_scene.get("error_message", "")
                 }
                 image_create_tasks.append(Image.create(**image_data))
@@ -384,14 +385,33 @@ class VideoTaskProcessor:
             # Use public R2 URL format
             public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
             
-            # Update task with final video URL
+            # Calculate total cost from image generation and video clips
+            total_cost = 0.0
+            image_gen_cost = 0.0
+            video_clip_cost = 0.0
+            
+            for image in images:
+                if image.image_generation_cost is not None:
+                    image_gen_cost += image.image_generation_cost
+                    total_cost += image.image_generation_cost
+                if image.video_clip_cost is not None:
+                    video_clip_cost += image.video_clip_cost
+                    total_cost += image.video_clip_cost
+            
+            logger.info(f"💰 Runware costs for task {task_id}:")
+            logger.info(f"   📸 Image generation: ${image_gen_cost:.6f}")
+            logger.info(f"   🎬 Video clips: ${video_clip_cost:.6f}")
+            logger.info(f"   💵 Total: ${total_cost:.6f}")
+            
+            # Update task with final video URL and total cost
             update_data = {
                 "url": public_url,
                 "story_title": task.custom_title or task.story_title,
                 "story_description": task.story_description or f"A {task.story_style_descriptor} video story",
                 "status": "completed",
                 "progress": 1.0,
-                "status_message": "Video ready!"
+                "status_message": "Video ready!",
+                "total_cost": total_cost
             }
             await task.update(task_id=task_id, **update_data)
             

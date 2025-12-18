@@ -19,7 +19,7 @@ async def generate_video_from_image(
     max_retries: int = 3,
     db_session = None,
     image_id: str = None
-) -> Optional[str]:
+) -> Optional[dict]:
     """
     Generate a video from an image using Runware's bytedance:2@1 model via SDK
     
@@ -119,6 +119,11 @@ async def generate_video_from_image(
                         videos = await runware.getResponse(taskUUID=task_uuid, numberResults=1)
                         
                         if videos and len(videos) > 0:
+                            # Log full response to check for cost fields
+                            logger.info(f"   📊 Full Runware response: {videos[0]}")
+                            if hasattr(videos[0], '__dict__'):
+                                logger.info(f"   📊 Response attributes: {videos[0].__dict__}")
+                            
                             # Extract URL from response
                             video_url = None
                             if hasattr(videos[0], 'videoURL'):
@@ -130,9 +135,21 @@ async def generate_video_from_image(
                             elif isinstance(videos[0], dict):
                                 video_url = videos[0].get('videoURL') or videos[0].get('video_url') or videos[0].get('url')
                             
+                            # Extract cost from response
+                            cost = None
+                            if hasattr(videos[0], 'cost'):
+                                cost = videos[0].cost
+                            elif hasattr(videos[0], 'credits'):
+                                cost = videos[0].credits
+                            elif isinstance(videos[0], dict):
+                                cost = videos[0].get('cost') or videos[0].get('credits')
+                            
                             if video_url:
                                 logger.info(f"✅ Video generated successfully: {video_url}")
-                                return video_url
+                                if cost is not None:
+                                    logger.info(f"   💰 Cost: ${cost}")
+                                return {"url": video_url, "cost": cost}
+                            return None
                     except Exception as poll_error:
                         # Task not ready yet, continue polling
                         logger.debug(f"Poll attempt {poll_attempt + 1}/{max_poll_attempts}: {poll_error}")
@@ -153,9 +170,21 @@ async def generate_video_from_image(
                 elif isinstance(result[0], dict):
                     video_url = result[0].get('videoURL') or result[0].get('video_url') or result[0].get('url')
                 
+                # Extract cost
+                cost = None
+                if hasattr(result[0], 'cost'):
+                    cost = result[0].cost
+                elif hasattr(result[0], 'credits'):
+                    cost = result[0].credits
+                elif isinstance(result[0], dict):
+                    cost = result[0].get('cost') or result[0].get('credits')
+                
                 if video_url:
                     logger.info(f"✅ Video generated successfully: {video_url}")
-                    return video_url
+                    if cost is not None:
+                        logger.info(f"   💰 Cost: ${cost}")
+                    return {"url": video_url, "cost": cost}
+                return None
             
             logger.error(f"❌ Unexpected response type: {type(result)}")
             logger.debug(f"Response: {result}")

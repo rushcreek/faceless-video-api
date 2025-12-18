@@ -28,7 +28,8 @@ class Image(Base):
     video_clip_task_uuid = Column(String, nullable=True, index=True)  # Runware task UUID
     video_clip_url = Column(String, nullable=True)  # Generated video clip URL
     video_clip_status = Column(String, nullable=True)  # pending/processing/completed/failed
-    video_clip_cost = Column(Float, nullable=True)  # API cost tracking
+    video_clip_cost = Column(Float, nullable=True)  # API cost tracking for video clip generation
+    image_generation_cost = Column(Float, nullable=True)  # API cost tracking for image generation
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

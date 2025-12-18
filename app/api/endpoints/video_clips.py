@@ -265,7 +265,7 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                     
                     # Generate video clip with actual scene duration
                     async with async_session() as check_session:
-                        video_url = await generate_video_from_image(
+                        result = await generate_video_from_image(
                             image_url=image_url,
                             prompt=prompt,
                             duration=scene_duration,  # Use actual duration!
@@ -273,6 +273,15 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                             db_session=check_session,
                             image_id=scene.id
                         )
+                    
+                    # Extract URL and cost from result
+                    video_url = None
+                    video_cost = None
+                    if isinstance(result, dict):
+                        video_url = result.get('url')
+                        video_cost = result.get('cost')
+                    elif isinstance(result, str):
+                        video_url = result  # Legacy string return
                     
                     # Check for cancellation
                     async with async_session() as final_check_session:
@@ -286,8 +295,10 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         scene_to_update = await update_session.get(Image, scene.id)
                         if video_url:
                             scene_to_update.video_clip_url = video_url
+                            scene_to_update.video_clip_cost = video_cost
                             scene_to_update.video_clip_status = 'completed'
-                            logger.info(f"✅ Video clip generated for scene {scene.scene_number}: {video_url}")
+                            cost_str = f" (cost: ${video_cost})" if video_cost is not None else ""
+                            logger.info(f"✅ Video clip generated for scene {scene.scene_number}: {video_url}{cost_str}")
                         else:
                             scene_to_update.video_clip_status = 'failed'
                             logger.error(f"❌ Failed to generate video clip for scene {scene.scene_number}")

@@ -519,6 +519,16 @@ textarea {
     flex-wrap: wrap;
 }
 
+.task-cost {
+    font-size: 0.9em;
+    color: #4CAF50;
+    font-weight: 600;
+    padding: 4px 8px;
+    background: #e8f5e9;
+    border-radius: 4px;
+    display: inline-block;
+}
+
 .task-progress {
     font-size: 0.9em;
     color: #667eea;
