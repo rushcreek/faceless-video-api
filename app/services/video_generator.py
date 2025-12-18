@@ -243,24 +243,26 @@ class VideoGenerator:
     
     def _add_captions_sync(self, video_file, output_file, font_path, segments):
         """Synchronous caption generation using shortcap library"""
-        from shortcap import add_captions
+        import shortcap
         
         logger.info(f"📝 Adding captions using shortcap...")
         
         try:
-            # Use shortcap with the segments data
-            result = add_captions(
+            # Use shortcap with the exact settings from working commit bb7a634
+            shortcap.add_captions(
                 video_file=video_file,
                 output_file=output_file,
-                segments=segments,
                 font=font_path,
-                font_size=70,
-                font_color='yellow',
-                stroke_color='black',
-                stroke_width=2,
+                font_size=80,
+                font_color="white",
+                stroke_width=3,
+                stroke_color="black",
+                shadow_strength=1.0,
+                shadow_blur=0.1,
                 highlight_current_word=True,
-                word_highlight_color='yellow',
-                line_count=2
+                word_highlight_color="yellow",
+                line_count=2,
+                use_local_whisper=False,
             )
             
             logger.info("✅ Shortcap caption generation complete!")
