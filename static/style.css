@@ -260,6 +260,7 @@ textarea {
     border-radius: 15px;
     overflow: hidden;
     margin: 15px 0;
+    position: relative;
 }
 
 .progress-fill {
@@ -271,6 +272,33 @@ textarea {
     justify-content: center;
     color: white;
     font-weight: 600;
+    position: relative;
+}
+
+/* Animated shimmer effect while waiting */
+.progress-fill::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.3),
+        transparent
+    );
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        left: -100%;
+    }
+    100% {
+        left: 100%;
+    }
 }
 
 .video-player {

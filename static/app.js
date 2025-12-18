@@ -503,9 +503,12 @@ function updateTaskStatusOnly(task) {
 function displayFullTaskStatus(task) {
     const container = document.getElementById('status-result');
     
+    // Use story_title from the task, fallback to custom_title, then 'Untitled'
+    const title = task.story_title || task.custom_title || 'Untitled';
+    
     let html = `
         <div class="task-card">
-            <h3>${task.story_title || task.custom_title || 'Untitled'}</h3>
+            <h3>${title}</h3>
             <p><strong>Status:</strong> <span class="status-badge ${task.status}">${task.status}</span></p>
             <p><strong>Task ID:</strong> ${task.task_id}</p>
             <p><strong>Created:</strong> ${new Date(task.created_at).toLocaleString()}</p>
@@ -813,6 +816,7 @@ function displayRunningTasks(tasks) {
     }
     
     listContainer.innerHTML = activeTasks.map(task => {
+        // Use story_title from the task, fallback to custom_title, then 'Untitled Video'
         const title = task.story_title || task.custom_title || 'Untitled Video';
         const progress = Math.round((task.progress || 0) * 100);
         const statusMessage = task.status_message || '';

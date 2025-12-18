@@ -218,22 +218,26 @@ class VideoGenerator:
             logger.info(f"  Input video: {output_file}")
             logger.info(f"  Output video: {output_file_subtitle}")
             logger.info(f"  Font: {caption_font}")
-            logger.info(f"  Custom segments provided: {len(custom_segments) if custom_segments else 0} segments")
+            logger.info(f"  Segments provided: {len(custom_segments) if custom_segments else 0}")
             
             font_path = os.path.join(self.font_path, f"{caption_font}.ttf")
-            logger.info(f"  Font path: {font_path}")
-            logger.info(f"  Font exists: {os.path.exists(font_path)}")
             
             if not custom_segments:
                 raise ValueError("Custom segments required for caption generation")
             
-            # Run caption generation in thread to avoid blocking
-            await asyncio.to_thread(self._add_captions_sync, output_file, output_file_subtitle, font_path, custom_segments)
+            # Run caption generation in a thread to avoid blocking
+            await asyncio.to_thread(
+                self._add_captions_moviepy_sync,
+                output_file,
+                output_file_subtitle,
+                font_path,
+                custom_segments
+            )
             
             logger.info(f"✅ Caption generation completed successfully")
             logger.info(f"  Output file created: {os.path.exists(output_file_subtitle)}")
             if os.path.exists(output_file_subtitle):
-                file_size = os.path.getsize(output_file_subtitle) / (1024 * 1024)  # MB
+                file_size = os.path.getsize(output_file_subtitle) / (1024 * 1024)
                 logger.info(f"  Output file size: {file_size:.2f} MB")
             
         except Exception as e:
@@ -241,8 +245,81 @@ class VideoGenerator:
             logger.error(f"  Stack trace:", exc_info=True)
             raise
     
+    def _add_captions_moviepy_sync(self, video_file, output_file, font_path, segments):
+        """Synchronous MoviePy caption generation - simple and reliable"""
+        from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+        
+        logger.info("Loading video file...")
+        video = VideoFileClip(video_file)
+        
+        # Collect all words with timing from segments
+        all_words = []
+        for segment in segments:
+            words = segment.get('words', [])
+            for word_data in words:
+                word_text = word_data.get('word', '').strip()
+                if word_text:
+                    all_words.append({
+                        'text': word_text,
+                        'start': word_data.get('start', 0),
+                        'end': word_data.get('end', 0)
+                    })
+        
+        logger.info(f"Processing {len(all_words)} words for captions...")
+        
+        if not all_words:
+            logger.warning("No words found in segments")
+            video.write_videofile(output_file, codec='libx264', audio_codec='aac')
+            video.close()
+            return
+        
+        # Create text clips for each word (yellow highlight style)
+        text_clips = []
+        for word_data in all_words:
+            try:
+                word_clip = TextClip(
+                    word_data['text'].upper(),
+                    fontsize=80,
+                    color='yellow',
+                    font=font_path,
+                    stroke_color='black',
+                    stroke_width=3,
+                    method='label'
+                ).set_start(word_data['start']).set_duration(word_data['end'] - word_data['start'])
+                
+                # Position at bottom center
+                word_clip = word_clip.set_position(('center', int(video.h * 0.75)))
+                text_clips.append(word_clip)
+                
+            except Exception as e:
+                logger.warning(f"Failed to create caption for '{word_data['text']}': {e}")
+        
+        logger.info(f"Created {len(text_clips)} caption clips, compositing...")
+        
+        # Composite video with captions
+        final_video = CompositeVideoClip([video] + text_clips)
+        
+        logger.info("Writing final video with captions...")
+        final_video.write_videofile(
+            output_file,
+            codec='libx264',
+            audio_codec='aac',
+            fps=video.fps,
+            preset='medium',
+            threads=4,
+            logger=None  # Suppress MoviePy's verbose output
+        )
+        
+        # Cleanup
+        video.close()
+        final_video.close()
+        for clip in text_clips:
+            clip.close()
+        
+        logger.info("✅ MoviePy caption generation complete!")
+    
     def _add_captions_sync(self, video_file, output_file, font_path, segments):
-        """Synchronous caption generation using shortcap library"""
+        """DEPRECATED - keeping for compatibility but not used"""
         import shortcap
         
         logger.info(f"📝 Adding captions using shortcap...")
