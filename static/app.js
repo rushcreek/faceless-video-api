@@ -169,6 +169,11 @@ function switchTab(tabName) {
             btn.classList.add('active');
         }
     });
+    
+    // Refresh running tasks when status tab is opened
+    if (tabName === 'status') {
+        refreshRunningTasks();
+    }
 }
 
 // Clear form
@@ -444,6 +449,14 @@ function updateTaskStatusOnly(task) {
         const progress = (task.progress * 100).toFixed(0);
         progressFill.style.width = `${progress}%`;
         progressFill.textContent = `${progress}%`;
+        
+        // Update progress bar color based on status
+        progressFill.classList.remove('completed', 'failed');
+        if (task.status === 'completed') {
+            progressFill.classList.add('completed');
+        } else if (task.status === 'failed') {
+            progressFill.classList.add('failed');
+        }
     }
     
     // Update status message
@@ -498,9 +511,12 @@ function updateTaskStatusOnly(task) {
 function displayFullTaskStatus(task) {
     const container = document.getElementById('status-result');
     
+    // Use story_title from the task, fallback to custom_title, then 'Untitled'
+    const title = task.story_title || task.custom_title || 'Untitled';
+    
     let html = `
         <div class="task-card">
-            <h3>${task.story_title || 'Untitled'}</h3>
+            <h3>${title}</h3>
             <p><strong>Status:</strong> <span class="status-badge ${task.status}">${task.status}</span></p>
             <p><strong>Task ID:</strong> ${task.task_id}</p>
             <p><strong>Created:</strong> ${new Date(task.created_at).toLocaleString()}</p>
@@ -511,9 +527,12 @@ function displayFullTaskStatus(task) {
         html += `<p><strong>Video:</strong> <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a></p>`;
     }
     
+    // Add status class to progress bar
+    const progressClass = task.status === 'completed' ? 'completed' : (task.status === 'failed' ? 'failed' : '');
+    
     html += `
             <div class="progress-bar">
-                <div class="progress-fill" style="width: ${(task.progress * 100).toFixed(0)}%">
+                <div class="progress-fill ${progressClass}" style="width: ${(task.progress * 100).toFixed(0)}%">
                     ${(task.progress * 100).toFixed(0)}%
                 </div>
             </div>
@@ -551,19 +570,95 @@ function displayFullTaskStatus(task) {
     }
     
     if (task.images && task.images.length > 0) {
+        // Sort images to maintain story sequence
+        // Use scene_number if available (new tasks), otherwise use created_at (old tasks)
+        const sortedImages = [...task.images].sort((a, b) => {
+            // If both have scene_number, use that
+            if (a.scene_number !== undefined && a.scene_number !== null && 
+                b.scene_number !== undefined && b.scene_number !== null) {
+                return a.scene_number - b.scene_number;
+            }
+            // If only one has scene_number, prioritize it
+            if (a.scene_number !== undefined && a.scene_number !== null) return -1;
+            if (b.scene_number !== undefined && b.scene_number !== null) return 1;
+            // Fall back to created_at for old tasks
+            return new Date(a.created_at) - new Date(b.created_at);
+        });
+        
         html += `
-            <h4>Generated Images (${task.images.length}):</h4>
+            <h4>Generated Images (${sortedImages.length}):</h4>
             <div class="image-grid">
         `;
         
-        task.images.forEach((img, idx) => {
+        sortedImages.forEach((img, idx) => {
             if (img.urls && img.urls.length > 0) {
                 html += `
-                    <div class="image-card">
+                    <div class="image-card" data-image-id="${img.id}">
                         <img src="${img.urls[0]}" alt="Scene ${idx + 1}">
                         <p>${img.subtitles || `Scene ${idx + 1}`}</p>
-                    </div>
                 `;
+                
+                // Add editable image prompt - collapsed by default
+                const imagePrompt = img.enhanced_prompt || img.prompt || '';
+                html += `
+                    <details class="prompt-details" style="margin-top: 10px;">
+                        <summary style="cursor: pointer; color: #2196F3; font-weight: bold; font-size: 0.9em; padding: 8px 0;">
+                            🖼️ Image Prompt
+                        </summary>
+                        <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #e0e0e0;">
+                            <textarea 
+                                id="image-prompt-${idx}" 
+                                class="prompt-textarea"
+                                placeholder="Image generation prompt will appear here..."
+                                style="width: 100%; min-height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; font-family: inherit; resize: vertical; background: white;"
+                                oninput="onPromptChanged(${idx}, 'image')"
+                            >${imagePrompt}</textarea>
+                        </div>
+                    </details>
+                `;
+                
+                // Add editable video generation request if available
+                if (img.video_generation_request) {
+                    const videoReq = img.video_generation_request;
+                    html += `
+                        <details class="prompt-details" style="margin-top: 10px;">
+                            <summary style="cursor: pointer; color: #667eea; font-weight: bold; font-size: 0.9em; padding: 8px 0;">
+                                📹 Video Motion Prompt
+                            </summary>
+                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 4px; border: 1px solid #e0e0e0;">
+                                <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.85em; color: #333;">Motion Prompt:</label>
+                                <textarea 
+                                    id="video-prompt-${idx}" 
+                                    class="prompt-textarea"
+                                    style="width: 100%; min-height: 60px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; font-family: inherit; margin-bottom: 12px; background: white; resize: vertical;"
+                                    oninput="onPromptChanged(${idx}, 'video')"
+                                >${videoReq.prompt || ''}</textarea>
+                                
+                                <label style="display: block; margin-bottom: 6px; font-weight: 600; font-size: 0.85em; color: #333;">Negative Prompt:</label>
+                                <textarea 
+                                    id="video-negative-${idx}" 
+                                    class="prompt-textarea"
+                                    style="width: 100%; min-height: 50px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; font-family: inherit; background: white; resize: vertical;"
+                                    oninput="onPromptChanged(${idx}, 'video')"
+                                >${videoReq.negative_prompt || ''}</textarea>
+                            </div>
+                        </details>
+                    `;
+                }
+                
+                // Add regenerate button (hidden initially)
+                html += `
+                    <button 
+                        id="regenerate-btn-${idx}" 
+                        class="regenerate-button" 
+                        style="display: none; width: 100%; margin-top: 10px; padding: 8px; background: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;"
+                        onclick="regenerateScene(${idx})"
+                    >
+                        🔄 Regenerate with New Prompts
+                    </button>
+                `;
+                
+                html += `</div>`;
             }
         });
         
@@ -577,6 +672,34 @@ function displayFullTaskStatus(task) {
     html += `</div>`;
     
     container.innerHTML = html;
+}
+
+// Copy video generation request to clipboard
+function copyVideoRequest(imageIndex) {
+    const taskId = document.getElementById('status_task_id').value.trim();
+    if (!taskId) return;
+    
+    // Get the current task from the last fetch
+    fetch(`${API_BASE}/v1/video/tasks/${taskId}`)
+        .then(response => response.json())
+        .then(task => {
+            if (task.images && task.images[imageIndex] && task.images[imageIndex].video_generation_request) {
+                const videoReq = task.images[imageIndex].video_generation_request;
+                const jsonStr = JSON.stringify(videoReq, null, 2);
+                
+                // Copy to clipboard
+                navigator.clipboard.writeText(jsonStr).then(() => {
+                    alert('Video request JSON copied to clipboard!');
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                    // Fallback: show the JSON in a prompt
+                    prompt('Copy this JSON:', jsonStr);
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching task:', error);
+        });
 }
 
 // Admin settings functions
@@ -656,6 +779,360 @@ function showAdminMessage(message, type) {
     setTimeout(() => {
         resultBox.style.display = 'none';
     }, 5000);
+}
+
+// Running Tasks Panel Functions
+async function refreshRunningTasks() {
+    const listContainer = document.getElementById('running-tasks-list');
+    listContainer.innerHTML = '<div class="loading-message">Loading tasks...</div>';
+    
+    try {
+        const token = await getAuthToken();
+        if (!token) {
+            listContainer.innerHTML = '<div class="loading-message" style="color: #f44336;">Authentication required</div>';
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks?limit=50`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            displayRunningTasks(data.tasks || []);
+        } else {
+            listContainer.innerHTML = '<div class="loading-message" style="color: #f44336;">Failed to load tasks</div>';
+        }
+    } catch (error) {
+        console.error('Error fetching tasks:', error);
+        listContainer.innerHTML = '<div class="loading-message" style="color: #f44336;">Error loading tasks</div>';
+    }
+}
+
+function displayRunningTasks(tasks) {
+    const activeListContainer = document.getElementById('running-tasks-list');
+    const completedListContainer = document.getElementById('completed-tasks-list');
+    
+    // Filter active tasks (not completed or failed)
+    const activeTasks = tasks.filter(task => 
+        task.status === 'queued' || 
+        task.status === 'processing' || 
+        task.status === 'waiting_for_clips'
+    );
+    
+    // Filter completed and failed tasks
+    const completedTasks = tasks.filter(task => 
+        task.status === 'completed' || 
+        task.status === 'failed'
+    );
+    
+    // Display active tasks
+    if (activeTasks.length === 0) {
+        activeListContainer.innerHTML = '<div class="no-tasks-message">No active tasks</div>';
+    } else {
+        activeListContainer.innerHTML = activeTasks.map(task => {
+            const title = task.story_title || task.custom_title || 'Untitled Video';
+            const progress = Math.round((task.progress || 0) * 100);
+            const statusMessage = task.status_message || '';
+            const createdAt = new Date(task.created_at).toLocaleString();
+            
+            return `
+                <div class="task-card">
+                    <div class="task-info">
+                        <div class="task-title">${title}</div>
+                        <div class="task-id">ID: ${task.task_id}</div>
+                        <div class="task-meta">
+                            <span class="status-badge ${task.status}">${task.status.replace('_', ' ')}</span>
+                            <span class="task-progress">${progress}%</span>
+                            ${statusMessage ? `<span class="task-message">${statusMessage}</span>` : ''}
+                        </div>
+                        <div class="task-id" style="font-size: 0.75em; color: #999;">Created: ${createdAt}</div>
+                    </div>
+                    <div class="task-actions">
+                        <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
+                        <button class="btn-kill" onclick="confirmCancelTask('${task.task_id}')">Kill</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    // Display completed tasks
+    if (completedTasks.length === 0) {
+        completedListContainer.innerHTML = '<div class="no-tasks-message">No completed tasks</div>';
+    } else {
+        completedListContainer.innerHTML = completedTasks.map(task => {
+            const title = task.story_title || task.custom_title || 'Untitled Video';
+            const createdAt = new Date(task.created_at).toLocaleString();
+            const completedAt = task.updated_at ? new Date(task.updated_at).toLocaleString() : createdAt;
+            const costDisplay = task.total_cost != null ? `<div class="task-cost">💰 Cost: $${task.total_cost.toFixed(4)}</div>` : '';
+            
+            return `
+                <div class="task-card">
+                    <div class="task-info">
+                        <div class="task-title">${title}</div>
+                        <div class="task-id">ID: ${task.task_id}</div>
+                        <div class="task-meta">
+                            <span class="status-badge ${task.status}">${task.status}</span>
+                        </div>
+                        ${costDisplay}
+                        <div class="task-id" style="font-size: 0.75em; color: #999;">Completed: ${completedAt}</div>
+                    </div>
+                    <div class="task-actions">
+                        <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
+                        <button class="btn-delete" onclick="confirmDeleteTask('${task.task_id}')">Delete</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+}
+
+function viewTaskDetails(taskId) {
+    // Set the task ID in the lookup input
+    document.getElementById('status_task_id').value = taskId;
+    // Fetch the task status
+    fetchTaskStatus();
+    // Scroll to the status result area
+    setTimeout(() => {
+        const statusResult = document.getElementById('status-result');
+        if (statusResult) {
+            statusResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }, 100);
+}
+
+async function confirmDeleteTask(taskId) {
+    if (!confirm(`Are you sure you want to permanently delete task ${taskId.substring(0, 8)}...? This cannot be undone.`)) {
+        return;
+    }
+    
+    await deleteTaskFromPanel(taskId);
+}
+
+async function deleteTaskFromPanel(taskId) {
+    try {
+        const token = await getAuthToken();
+        if (!token) {
+            alert('Authentication required');
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            console.log('Task deleted:', result);
+            // Refresh the task list
+            await refreshRunningTasks();
+        } else {
+            const error = await response.json();
+            alert(`Failed to delete task: ${error.detail || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error deleting task:', error);
+        alert('Error deleting task. Check console for details.');
+    }
+}
+
+async function confirmCancelTask(taskId) {
+    if (!confirm(`Are you sure you want to cancel task ${taskId.substring(0, 8)}...?`)) {
+        return;
+    }
+    
+    await cancelTaskFromPanel(taskId);
+}
+
+async function cancelTaskFromPanel(taskId) {
+    try {
+        const token = await getAuthToken();
+        if (!token) {
+            alert('Authentication required');
+            return;
+        }
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}/cancel`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        // Always refresh the list regardless of response
+        // This handles both success and "already cancelled" cases gracefully
+        await refreshRunningTasks();
+        
+        if (!response.ok) {
+            // Only show error if it's a real error (not "already cancelled")
+            try {
+                const error = await response.json();
+                // Don't alert for "already cancelled" errors
+                if (!error.detail?.includes('already')) {
+                    console.error('Cancel task error:', error);
+                }
+            } catch (e) {
+                console.error('Cancel task failed:', response.status, response.statusText);
+            }
+        }
+    } catch (error) {
+        console.error('Error cancelling task:', error);
+        // Refresh anyway to show current state
+        await refreshRunningTasks();
+    }
+}
+
+// Track original prompts for change detection
+let originalPrompts = {};
+
+// Store task images data globally for regeneration
+let currentTaskImages = [];
+
+// Called when any prompt is changed
+function onPromptChanged(sceneIdx, promptType) {
+    const regenerateBtn = document.getElementById(`regenerate-btn-${sceneIdx}`);
+    if (!regenerateBtn) return;
+    
+    // Initialize original prompts if not done
+    if (!originalPrompts[sceneIdx]) {
+        const imagePrompt = document.getElementById(`image-prompt-${sceneIdx}`);
+        const videoPrompt = document.getElementById(`video-prompt-${sceneIdx}`);
+        const videoNegative = document.getElementById(`video-negative-${sceneIdx}`);
+        
+        originalPrompts[sceneIdx] = {
+            image: imagePrompt ? imagePrompt.defaultValue : '',
+            video: videoPrompt ? videoPrompt.defaultValue : '',
+            negative: videoNegative ? videoNegative.defaultValue : ''
+        };
+    }
+    
+    // Check if any prompts have changed
+    const imagePrompt = document.getElementById(`image-prompt-${sceneIdx}`);
+    const videoPrompt = document.getElementById(`video-prompt-${sceneIdx}`);
+    const videoNegative = document.getElementById(`video-negative-${sceneIdx}`);
+    
+    const hasChanges = 
+        (imagePrompt && imagePrompt.value !== originalPrompts[sceneIdx].image) ||
+        (videoPrompt && videoPrompt.value !== originalPrompts[sceneIdx].video) ||
+        (videoNegative && videoNegative.value !== originalPrompts[sceneIdx].negative);
+    
+    // Show/hide regenerate button
+    regenerateBtn.style.display = hasChanges ? 'block' : 'none';
+}
+
+// Regenerate a specific scene with new prompts
+async function regenerateScene(sceneIdx) {
+    const taskId = document.getElementById('status_task_id').value.trim();
+    if (!taskId) {
+        alert('No task ID available');
+        return;
+    }
+    
+    // Get the image ID from the card
+    const imageCards = document.querySelectorAll('.image-card');
+    if (!imageCards[sceneIdx]) {
+        alert('Scene not found');
+        return;
+    }
+    
+    const imageId = imageCards[sceneIdx].dataset.imageId;
+    if (!imageId) {
+        alert('Image ID not found');
+        return;
+    }
+    
+    // Get updated prompts
+    const imagePromptEl = document.getElementById(`image-prompt-${sceneIdx}`);
+    const videoPromptEl = document.getElementById(`video-prompt-${sceneIdx}`);
+    const videoNegativeEl = document.getElementById(`video-negative-${sceneIdx}`);
+    
+    const updates = {};
+    
+    if (imagePromptEl && imagePromptEl.value !== originalPrompts[sceneIdx]?.image) {
+        updates.image_prompt = imagePromptEl.value;
+    }
+    
+    if (videoPromptEl || videoNegativeEl) {
+        const videoRequest = {};
+        if (videoPromptEl && videoPromptEl.value !== originalPrompts[sceneIdx]?.video) {
+            videoRequest.prompt = videoPromptEl.value;
+        }
+        if (videoNegativeEl && videoNegativeEl.value !== originalPrompts[sceneIdx]?.negative) {
+            videoRequest.negative_prompt = videoNegativeEl.value;
+        }
+        
+        if (Object.keys(videoRequest).length > 0) {
+            updates.video_generation_request = videoRequest;
+        }
+    }
+    
+    if (Object.keys(updates).length === 0) {
+        alert('No changes detected');
+        return;
+    }
+    
+    if (!confirm(`Regenerate scene ${sceneIdx + 1} with new prompts?`)) {
+        return;
+    }
+    
+    try {
+        const token = await getAuthToken();
+        if (!token) return;
+        
+        const regenerateBtn = document.getElementById(`regenerate-btn-${sceneIdx}`);
+        regenerateBtn.disabled = true;
+        regenerateBtn.textContent = '⏳ Regenerating...';
+        
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}/images/${imageId}/regenerate`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updates)
+        });
+        
+        if (response.ok) {
+            alert('Scene regeneration started! The page will refresh when complete.');
+            
+            // Update original prompts
+            if (updates.image_prompt) {
+                originalPrompts[sceneIdx].image = updates.image_prompt;
+            }
+            if (updates.video_generation_request?.prompt) {
+                originalPrompts[sceneIdx].video = updates.video_generation_request.prompt;
+            }
+            if (updates.video_generation_request?.negative_prompt) {
+                originalPrompts[sceneIdx].negative = updates.video_generation_request.negative_prompt;
+            }
+            
+            regenerateBtn.style.display = 'none';
+            regenerateBtn.disabled = false;
+            regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
+            
+            // Refresh task status after a delay
+            setTimeout(() => fetchTaskStatus(), 3000);
+        } else {
+            const error = await response.json();
+            alert(`Failed to regenerate: ${error.detail || 'Unknown error'}`);
+            regenerateBtn.disabled = false;
+            regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
+        }
+    } catch (error) {
+        console.error('Error regenerating scene:', error);
+        alert('Failed to regenerate scene');
+        const regenerateBtn = document.getElementById(`regenerate-btn-${sceneIdx}`);
+        regenerateBtn.disabled = false;
+        regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
+    }
 }
 
 // Initialize on page load

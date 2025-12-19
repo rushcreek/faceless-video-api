@@ -29,6 +29,7 @@ class VideoTask(Base):
     error_message = Column(Text)
     status_message = Column(String, nullable=True)
     progress = Column(Float, default=0.0)
+    total_cost = Column(Float, nullable=True, default=0.0)  # Total cost for all API calls
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -90,5 +91,15 @@ class VideoTask(Base):
     async def get_by_status(cls, status: str) -> List['VideoTask']:
         async with async_session() as session:
             query = select(cls).filter(cls.status == status)
+            result = await session.execute(query)
+            return result.scalars().all()
+
+    @classmethod
+    async def list_all(cls, limit: int = 20, status_filter: Optional[str] = None) -> List['VideoTask']:
+        """List all tasks ordered by creation date, with optional status filter"""
+        async with async_session() as session:
+            query = select(cls).order_by(cls.created_at.desc()).limit(limit)
+            if status_filter:
+                query = query.filter(cls.status == status_filter)
             result = await session.execute(query)
             return result.scalars().all()

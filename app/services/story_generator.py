@@ -12,6 +12,10 @@ class StoryGenerator:
     def __init__(self, client):
         self.client = client
         self.config = settings
+        # Model configuration for different tasks
+        self.character_model = "gpt-4o-mini"
+        self.video_prompt_model = "gpt-4o-mini"
+        self.storyboard_model = "gpt-4o"
 
     async def generate_characters(self, story: str) -> List[Dict[str, str]]:
         prompt = f"""Based on the following story, create detailed descriptions for each character, including their name, ethnicity, gender, age, facial features, body type, hair style, and accessories. Focus on permanent or long-term attributes.
@@ -66,7 +70,7 @@ class StoryGenerator:
             {"role": "user", "content": prompt},
         ]
 
-        response = await call_openai_api(self.client, messages)
+        response = await call_openai_api(self.client, messages, model=self.character_model)
         if not response:
             logger.error("API returned empty response")
         
@@ -84,6 +88,85 @@ class StoryGenerator:
             else:
                 logger.error("No JSON array found in the response.")
                 return []
+
+    async def generate_video_prompt(self, scene_description: str, art_style: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Generate a Seadance 1.0 video generation request based on an image scene description.
+        Returns a complete JSON request for video generation from the image.
+        """
+        prompt = f"""Based on this image scene description, create a SIMPLE, MINIMAL video motion prompt for Seadance 1.0 video generation.
+
+Scene Description: {scene_description}
+Art Style: {art_style if art_style else 'photorealistic'}
+
+Create a brief video prompt with MINIMAL motion description. Keep it simple:
+- Use general terms, not specific detailed actions
+- Keep movements slow and subtle
+- Avoid complex or exaggerated motion
+- Focus on gentle, natural movement only
+
+The motion should be:
+- MINIMAL and understated
+- Slow and smooth
+- Simple and conservative
+- Natural but NOT detailed
+
+Generate a complete Seadance 1.0 API request in JSON format with these fields:
+- prompt: BRIEF motion description (keep it general and simple - avoid specific detailed actions)
+- negative_prompt: What to avoid in the video
+- num_inference_steps: Recommended inference steps (default: 50)
+- guidance_scale: Recommended guidance scale (default: 7.5)
+- duration: Video duration in seconds (default: 5)
+- fps: Frames per second (default: 24)
+
+Return ONLY the JSON object, no other text."""
+
+        messages = [
+            {
+                "role": "system",
+                "content": """You are an expert in video generation. You specialize in creating SIMPLE, MINIMAL motion prompts.
+                
+                CRITICAL RULES:
+                1. Keep motion descriptions SHORT and GENERAL
+                2. Use broad terms like "gentle movement" instead of specific detailed actions
+                3. Avoid describing complex or specific human movements
+                4. Prioritize subtlety over detail
+                5. When in doubt, use less description
+                
+                You create simple, understated motion descriptions that avoid unintended distortions."""
+            },
+            {"role": "user", "content": prompt},
+        ]
+
+        response = await call_openai_api(self.client, messages, model=self.video_prompt_model)
+        if not response:
+            logger.error("API returned empty response for video prompt")
+            return self._create_default_video_request()
+        
+        # Find the JSON part of the response
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            json_str = json_match.group()
+            try:
+                video_request = json.loads(json_str)
+                return video_request
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON Decode Error in video prompt: {e}")
+                return self._create_default_video_request()
+        else:
+            logger.error("No JSON object found in video prompt response")
+            return self._create_default_video_request()
+    
+    def _create_default_video_request(self) -> Dict[str, Any]:
+        """Create a default video generation request when AI generation fails"""
+        return {
+            "prompt": "Subtle camera movement, natural ambient motion",
+            "negative_prompt": "static, frozen, jerky motion, unnatural movement",
+            "num_inference_steps": 50,
+            "guidance_scale": 7.5,
+            "duration": 5,
+            "fps": 24
+        }
 
     async def generate_storyboard(self, title: str, story: str, character_names: List[str], tweak_prompt: Optional[str] = None, art_style: Optional[str] = None) -> Dict[str, Any]:
         """Generate storyboard from custom story - universal method"""
@@ -106,11 +189,11 @@ class StoryGenerator:
             {art_style_guidance}
 
             IMPORTANT TERMINOLOGY RULES:
-            - NEVER use the words "animate", "animated", "animation", "stylized", "illustration", or "illustrated" in your descriptions
+            - NEVER use the words "animate", "animated", "animation", "stylized", "illustration", "illustrated", or "depicted" in your descriptions
             - Instead, rely on the specified art style to convey non-realistic character styles
-            - Use terms like "rendered", "depicted", "portrayed", or "designed"
+            - Use terms like "rendered", "portrayed", or "designed"
             - For character descriptions, focus on visual appearance, not animation state
-            - Example: Instead of "animated character", "stylized character", or "illustrated character", use "{art_style if art_style else 'rendered'} character" or "depicted character"
+            - Example: Instead of "animated character", "stylized character", "illustrated character", or "depicted character", use "{art_style if art_style else 'rendered'} character"
 
             First, create an opening scene:
             1. Scene Number: 1
@@ -119,7 +202,7 @@ class StoryGenerator:
             4. Camera, Lighting, and Transition: As per the guidelines below.
 
             Then, for each subsequent scene, provide the following details:
-            1. Scene Number
+            1. Scene Number: An integer starting from 1 and incrementing sequentially (1, 2, 3, etc.)
             2. Description: A vivid description (60-70 words) focusing on key visual elements.
             3. Subtitles: Use EXACT quotes from the original story WITH ALL PUNCTUATION PRESERVED (periods, commas, question marks, exclamation points, etc.)
             4. Camera: Specify the angle, composition type, and shot size.
@@ -127,6 +210,7 @@ class StoryGenerator:
             6. Transition: Specify the type of transition to the current scene.
 
             Guidelines:
+            - Scene numbers MUST be integers (1, 2, 3, etc.), NOT strings.
             - Subtitles MUST contain only exact text from the original story, without any additions, omissions, or modifications.
             - PRESERVE ALL PUNCTUATION exactly as it appears in the original story (periods, commas, question marks, exclamation points, quotation marks, apostrophes, dashes, etc.)
             - Include every sentence from the original story in the subtitles, maintaining the correct order across all scenes.
@@ -165,7 +249,7 @@ class StoryGenerator:
                 }}}},
                 "storyboards": [
                     {{{{
-                        "scene_number": "Scene Number",
+                        "scene_number": 1,
                         "description": "Scene Description",
                         "subtitles": "Subtitles or Dialogue",
                         "image": null,
@@ -211,7 +295,7 @@ class StoryGenerator:
             {"role": "user", "content": prompt},
         ]
 
-        response = await call_openai_api(self.client, messages)
+        response = await call_openai_api(self.client, messages, model=self.storyboard_model)
         if not response:
             logger.error("API returned empty response")
             return create_empty_storyboard(title)
@@ -222,6 +306,48 @@ class StoryGenerator:
             json_str = json_match.group()
             try:
                 storyboard_data = json.loads(json_str)
+                
+                # Validate and normalize scene_number field
+                if storyboard_data.get("storyboards"):
+                    for idx, scene in enumerate(storyboard_data["storyboards"]):
+                        # Ensure scene_number exists and is an integer
+                        if "scene_number" not in scene or not isinstance(scene["scene_number"], int):
+                            scene["scene_number"] = idx + 1
+                            logger.warning(f"Scene {idx} missing or invalid scene_number, set to {idx + 1}")
+                
+                # Generate video prompts for select key scenes only (first, two middle, last)
+                logger.info("Generating video prompts for key scenes...")
+                if storyboard_data.get("storyboards"):
+                    scenes = storyboard_data["storyboards"]
+                    total_scenes = len(scenes)
+                    
+                    # Determine which scenes to generate prompts for
+                    key_scene_indices = set()
+                    if total_scenes > 0:
+                        key_scene_indices.add(0)  # First scene
+                    if total_scenes > 3:
+                        # Two scenes near the middle
+                        mid_point = total_scenes // 2
+                        key_scene_indices.add(mid_point - 1)
+                        key_scene_indices.add(mid_point)
+                    if total_scenes > 1:
+                        key_scene_indices.add(total_scenes - 1)  # Last scene
+                    
+                    for idx, scene in enumerate(scenes):
+                        if idx in key_scene_indices:
+                            scene_description = scene.get("description", "")
+                            try:
+                                if scene_description:
+                                    logger.info(f"Generating video prompt for scene {scene.get('scene_number', idx + 1)} (key scene)")
+                                    video_request = await self.generate_video_prompt(scene_description, art_style)
+                                    scene["video_generation_request"] = video_request
+                                else:
+                                    scene["video_generation_request"] = self._create_default_video_request()
+                            except Exception as e:
+                                logger.warning(f"Failed to generate video prompt for scene {scene.get('scene_number', idx + 1)}: {e}")
+                                scene["video_generation_request"] = self._create_default_video_request()
+                        # No video prompt for non-key scenes
+                
                 return storyboard_data
             except json.JSONDecodeError as e:
                 logger.error(f"JSON Decode Error: {e}")

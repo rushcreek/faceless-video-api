@@ -139,20 +139,29 @@ class ImageGenerator:
                 logger.debug(f"Prepared prompt for scene {storyboard.get('scene_number')}: {enhanced_prompt[:100]}...")
             
             # Generate ALL images in parallel
-            image_urls = await runware_flux_batch_api(task_id, enhanced_prompts)
+            image_results = await runware_flux_batch_api(task_id, enhanced_prompts)
             
             # Process results and update progress
-            for i, (image_url, enhanced_prompt) in enumerate(zip(image_urls, enhanced_prompts)):
-                if image_url:
+            for i, (image_result, enhanced_prompt) in enumerate(zip(image_results, enhanced_prompts)):
+                if image_result and isinstance(image_result, dict):
+                    image_url = image_result.get('url')
+                    image_cost = image_result.get('cost')
+                    
                     storyboard_project['storyboards'][i]['image'] = image_url
                     storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
+                    storyboard_project['storyboards'][i]['image_generation_cost'] = image_cost  # Store cost
                     storyboard_project['storyboards'][i]['error_message'] = None
-                    logger.info(f"✅ Image {i+1} generated successfully: {image_url}")
+                    
+                    if image_cost is not None:
+                        logger.info(f"✅ Image {i+1} generated successfully: {image_url} (cost: ${image_cost:.6f})")
+                    else:
+                        logger.info(f"✅ Image {i+1} generated successfully: {image_url}")
                 else:
                     error_message = "Image generation failed: returned None"
                     logger.error(f"❌ Error generating image {i+1}")
                     storyboard_project['storyboards'][i]['image'] = None
                     storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
+                    storyboard_project['storyboards'][i]['image_generation_cost'] = None
                     storyboard_project['storyboards'][i]['error_message'] = error_message
                 
                 # Call progress callback after each image result is processed
@@ -161,9 +170,15 @@ class ImageGenerator:
             
             end_time = time.time()
             total_time = end_time - start_time
-            successful = sum(1 for url in image_urls if url)
+            successful = sum(1 for result in image_results if result and isinstance(result, dict) and result.get('url'))
             logger.info(f"🎉 Parallel generation completed: {successful}/{total_images} successful in {total_time:.2f}s")
             logger.info(f"⚡ Average time per image: {total_time/total_images:.2f}s")
+            
+            # Extract URLs for return (maintain backwards compatibility)
+            image_urls = [
+                result.get('url') if (result and isinstance(result, dict)) else None
+                for result in image_results
+            ]
             
             return image_urls
         

@@ -40,7 +40,18 @@ def shake(clip, effect_duration=1, max_offset=5):
     return clip.fl(shake_effect)
 
 
-def zoom(clip, mode="in", position="center", speed=3):
+def zoom(clip, mode="in", position="center", speed=1, min_duration=5.0, max_zoom_ratio=0.15):
+    """
+    Apply zoom effect with duration-based moderation.
+    
+    Args:
+        clip: The video clip to apply zoom to
+        mode: "in" or "out" for zoom direction
+        position: Where to zoom from/to (center, left, right, etc.)
+        speed: Base zoom speed multiplier (default: 1)
+        min_duration: Duration threshold below which zoom is moderated (default: 5.0 seconds)
+        max_zoom_ratio: Maximum zoom ratio for full-duration clips (default: 0.15 = 15% zoom)
+    """
     if hasattr(clip, "fps") and clip.fps is not None:
         fps = clip.fps
     else:
@@ -48,6 +59,15 @@ def zoom(clip, mode="in", position="center", speed=3):
 
     duration = clip.duration
     total_frames = max(1, int(duration * fps))  # ensure at least 1 frame
+
+    # Calculate zoom factor based on duration
+    # Shorter clips get proportionally less zoom
+    if duration < min_duration:
+        # Scale zoom proportionally: 2s clip gets 40% of full zoom, 3s gets 60%, etc.
+        duration_factor = duration / min_duration
+        effective_zoom_ratio = max_zoom_ratio * duration_factor
+    else:
+        effective_zoom_ratio = max_zoom_ratio
 
     def main(getframe, t):
         frame = getframe(t)
@@ -60,7 +80,9 @@ def zoom(clip, mode="in", position="center", speed=3):
         i = t * fps
         if mode == "out":
             i = total_frames - i
-        zoom = 1 + (i * ((0.1 * speed) / total_frames))
+        
+        # Use effective_zoom_ratio instead of hardcoded 0.1
+        zoom = 1 + (i * ((effective_zoom_ratio * speed) / total_frames))
         
         # compute the extra zoom to avoid black bars
         extra_zoom = max(w / (w - 2), h / (h - 2))

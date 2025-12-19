@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.api.endpoints import video, image, auth, admin
+from app.api.endpoints import video, image, auth, admin, video_clips
 from app.core.config import settings
 from app.core.logging import setup_logging
 import os
@@ -21,6 +21,7 @@ app.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
 app.include_router(video.router, prefix="/v1", tags=["video"])
 app.include_router(image.router, prefix="/v1", tags=["image"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+app.include_router(video_clips.router, prefix="/v1/video", tags=["video-clips"])
 
 # Mount static files for the UI
 static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")

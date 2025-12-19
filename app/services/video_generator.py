@@ -8,15 +8,16 @@ from moviepy.editor import (
     CompositeVideoClip,
     ColorClip,
     AudioClip,
-    TextClip
+    TextClip,
+    VideoFileClip
 )
 from app.services.audio_generator import AudioGenerator
 from app.utils.transitions import zoom 
-import shortcap
 from app.core.config import settings
 from app.core.logging import logger
 from app.utils.image_utils import download_image
-from PIL import Image
+from app.models.image import Image
+from PIL import Image as PILImage
 import json
 import openai
 from difflib import SequenceMatcher
@@ -119,7 +120,7 @@ class VideoGenerator:
             
             with open(audio_file, "rb") as f:
                 transcript = client.audio.transcriptions.create(
-                    model="gpt-4o-mini-transcribe",
+                    model="whisper-1",  # Use standard Whisper model - supports verbose_json
                     file=f,
                     response_format="verbose_json",
                     timestamp_granularities=["word"]
@@ -150,8 +151,8 @@ class VideoGenerator:
             appstore_path = os.path.join(self.assets_path, "appstore.png")
             
             # Open images with PIL to get dimensions
-            prlogo_img = Image.open(prlogo_path)
-            appstore_img = Image.open(appstore_path)
+            prlogo_img = PILImage.open(prlogo_path)
+            appstore_img = PILImage.open(appstore_path)
             
             # Video dimensions (9:16 aspect ratio)
             video_width = 1080
@@ -212,25 +213,400 @@ class VideoGenerator:
             return None
 
     async def add_captions(self, output_file, output_file_subtitle, caption_font='BebasNeue', custom_segments=None):
-        """Add phrase-based captions to video with punctuation preserved from storyboard"""
-        shortcap.add_captions(
-            video_file=output_file,
-            output_file=output_file_subtitle,
-            font=os.path.join(self.font_path, f"{caption_font}.ttf"),
-            font_size=92,
-            font_color="white",
-            stroke_width=3,
-            stroke_color="black",
-            shadow_strength=1.0,
-            shadow_blur=0.1,
-            highlight_current_word=True,
-            word_highlight_color="yellow",
-            line_count=2,  # Show 2-3 lines to display more words as phrases
-            segments=custom_segments,  # Pass custom segments to preserve punctuation
-            use_local_whisper=False,
+        """Add phrase-based captions to video using MoviePy directly"""
+        try:
+            logger.info(f"🎬 Starting caption generation with MoviePy")
+            logger.info(f"  Input video: {output_file}")
+            logger.info(f"  Output video: {output_file_subtitle}")
+            logger.info(f"  Font: {caption_font}")
+            logger.info(f"  Segments provided: {len(custom_segments) if custom_segments else 0}")
+            
+            font_path = os.path.join(self.font_path, f"{caption_font}.ttf")
+            
+            if not custom_segments:
+                raise ValueError("Custom segments required for caption generation")
+            
+            # Run caption generation in a thread to avoid blocking
+            await asyncio.to_thread(
+                self._add_captions_moviepy_sync,
+                output_file,
+                output_file_subtitle,
+                font_path,
+                custom_segments
+            )
+            
+            logger.info(f"✅ Caption generation completed successfully")
+            logger.info(f"  Output file created: {os.path.exists(output_file_subtitle)}")
+            if os.path.exists(output_file_subtitle):
+                file_size = os.path.getsize(output_file_subtitle) / (1024 * 1024)
+                logger.info(f"  Output file size: {file_size:.2f} MB")
+            
+        except Exception as e:
+            logger.error(f"❌ Error in add_captions: {type(e).__name__}: {str(e)}")
+            logger.error(f"  Stack trace:", exc_info=True)
+            raise
+    
+    def _add_captions_moviepy_sync(self, video_file, output_file, font_path, segments):
+        """2-line captions: render each word individually - white when not active, yellow when speaking"""
+        from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+        
+        logger.info("Loading video file...")
+        video = VideoFileClip(video_file)
+        
+        # Collect all words with timing from segments
+        all_words = []
+        for segment in segments:
+            words = segment.get('words', [])
+            for word_data in words:
+                word_text = word_data.get('word', '').strip()
+                if word_text:
+                    all_words.append({
+                        'text': word_text,
+                        'start': word_data.get('start', 0),
+                        'end': word_data.get('end', 0)
+                    })
+        
+        logger.info(f"Processing {len(all_words)} words for 2-line captions with highlighting...")
+        
+        if not all_words:
+            logger.warning("No words found in segments")
+            video.write_videofile(output_file, codec='libx264', audio_codec='aac')
+            video.close()
+            return
+        
+        # Group words into 2-line phrases (roughly 8 words per phrase)
+        words_per_phrase = 8
+        phrases = []
+        
+        for i in range(0, len(all_words), words_per_phrase):
+            phrase_words = all_words[i:i + words_per_phrase]
+            if phrase_words:
+                # Split into 2 lines (half on each line)
+                mid_point = len(phrase_words) // 2
+                line1_words = phrase_words[:mid_point]
+                line2_words = phrase_words[mid_point:]
+                
+                phrases.append({
+                    'line1': line1_words,
+                    'line2': line2_words,
+                    'start': phrase_words[0]['start'],
+                    'end': phrase_words[-1]['end'],
+                    'all_words': phrase_words
+                })
+        
+        logger.info(f"Created {len(phrases)} two-line phrases")
+        
+        # FIXED APPROACH: Persistent white base + yellow overlays for consistency
+        caption_clips = []
+        caption_y = int(video.h * 0.80)
+        line_spacing = 90
+        shadow_offset = 3  # Shadow offset in pixels
+        
+        for phrase_idx, phrase in enumerate(phrases):
+            line1_text = ' '.join([w['text'] for w in phrase['line1']])
+            line2_text = ' '.join([w['text'] for w in phrase['line2']])
+            
+            # Step 0: Create shadow layers (black text offset slightly)
+            if line1_text:
+                line1_shadow_clips = []
+                x_offset = 0
+                for w in phrase['line1']:
+                    shadow_clip = TextClip(w['text'], fontsize=80, color='black', font=font_path, method='label')
+                    positioned = shadow_clip.set_position((x_offset, 0))
+                    line1_shadow_clips.append(positioned)
+                    x_offset += shadow_clip.w + 10
+                
+                line1_width = x_offset - 10
+                line1_shadow = CompositeVideoClip(line1_shadow_clips, size=(line1_width, 100))
+                line1_x = (video.w - line1_width) // 2
+                line1_shadow = line1_shadow.set_position((line1_x + shadow_offset, caption_y + shadow_offset))
+                line1_shadow = line1_shadow.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line1_shadow)
+            
+            if line2_text:
+                line2_shadow_clips = []
+                x_offset = 0
+                for w in phrase['line2']:
+                    shadow_clip = TextClip(w['text'], fontsize=80, color='black', font=font_path, method='label')
+                    positioned = shadow_clip.set_position((x_offset, 0))
+                    line2_shadow_clips.append(positioned)
+                    x_offset += shadow_clip.w + 10
+                
+                line2_width = x_offset - 10
+                line2_shadow = CompositeVideoClip(line2_shadow_clips, size=(line2_width, 100))
+                line2_x = (video.w - line2_width) // 2
+                line2_shadow = line2_shadow.set_position((line2_x + shadow_offset, caption_y + line_spacing + shadow_offset))
+                line2_shadow = line2_shadow.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line2_shadow)
+            
+            # Step 1: Create white base layers that persist for entire phrase (prevents disappearing)
+            if line1_text:
+                # Build line 1 as composite to get consistent positioning
+                line1_word_clips = []
+                x_offset = 0
+                for w in phrase['line1']:
+                    word_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                    positioned = word_clip.set_position((x_offset, 0))
+                    line1_word_clips.append(positioned)
+                    x_offset += word_clip.w + 10
+                
+                line1_width = x_offset - 10
+                line1_base = CompositeVideoClip(line1_word_clips, size=(line1_width, 100))
+                line1_x = (video.w - line1_width) // 2
+                line1_base = line1_base.set_position((line1_x, caption_y))
+                line1_base = line1_base.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line1_base)
+            
+            if line2_text:
+                # Build line 2 as composite with SAME positioning logic
+                line2_word_clips = []
+                x_offset = 0
+                for w in phrase['line2']:
+                    word_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                    positioned = word_clip.set_position((x_offset, 0))
+                    line2_word_clips.append(positioned)
+                    x_offset += word_clip.w + 10
+                
+                line2_width = x_offset - 10
+                line2_base = CompositeVideoClip(line2_word_clips, size=(line2_width, 100))
+                line2_x = (video.w - line2_width) // 2
+                line2_base = line2_base.set_position((line2_x, caption_y + line_spacing))
+                line2_base = line2_base.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
+                caption_clips.append(line2_base)
+            
+            # Step 2: Add yellow overlays for each word at its specific timing
+            for word_idx, current_word in enumerate(phrase['all_words']):
+                if word_idx < len(phrase['line1']):
+                    # Word is on line 1
+                    x_offset = 0
+                    for i, w in enumerate(phrase['line1']):
+                        if i == word_idx:
+                            # Create yellow overlay for this word
+                            yellow_clip = TextClip(w['text'], fontsize=80, color='yellow', font=font_path, method='label')
+                            yellow_x = line1_x + x_offset
+                            yellow_clip = yellow_clip.set_position((yellow_x, caption_y))
+                            yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
+                            caption_clips.append(yellow_clip)
+                            break
+                        else:
+                            # Calculate offset to find position
+                            temp_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                            x_offset += temp_clip.w + 10
+                            temp_clip.close()
+                else:
+                    # Word is on line 2
+                    word_pos_in_line2 = word_idx - len(phrase['line1'])
+                    x_offset = 0
+                    for i, w in enumerate(phrase['line2']):
+                        if i == word_pos_in_line2:
+                            yellow_clip = TextClip(w['text'], fontsize=80, color='yellow', font=font_path, method='label')
+                            yellow_x = line2_x + x_offset
+                            yellow_clip = yellow_clip.set_position((yellow_x, caption_y + line_spacing))
+                            yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
+                            caption_clips.append(yellow_clip)
+                            break
+                        else:
+                            temp_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                            x_offset += temp_clip.w + 10
+                            temp_clip.close()
+        
+        logger.info(f"Created {len(caption_clips)} caption elements (base + overlays), compositing...")
+        
+        # Composite video with all captions
+        final_video = CompositeVideoClip([video] + caption_clips)
+        
+        logger.info("Writing final video with captions...")
+        final_video.write_videofile(
+            output_file,
+            codec='libx264',
+            audio_codec='aac',
+            fps=video.fps,
+            preset='medium',
+            threads=4,
+            logger=None  # Suppress MoviePy's verbose output
         )
+        
+        # Cleanup - close all clips to free resources
+        logger.info("Cleaning up clip resources...")
+        for clip in caption_clips:
+            try:
+                clip.close()
+            except:
+                pass
+        video.close()
+        final_video.close()
+        
+        logger.info("✅ MoviePy caption generation complete!")
+    
+    def _add_captions_sync(self, video_file, output_file, font_path, segments):
+        """DEPRECATED - keeping for compatibility but not used"""
+        import shortcap
+        
+        logger.info(f"📝 Adding captions using shortcap...")
+        
+        try:
+            # Use shortcap with the exact settings from working commit bb7a634
+            shortcap.add_captions(
+                video_file=video_file,
+                output_file=output_file,
+                font=font_path,
+                font_size=80,
+                font_color="white",
+                stroke_width=3,
+                stroke_color="black",
+                shadow_strength=1.0,
+                shadow_blur=0.1,
+                highlight_current_word=True,
+                word_highlight_color="yellow",
+                line_count=2,
+                use_local_whisper=False,
+            )
+            
+            logger.info("✅ Shortcap caption generation complete!")
+            
+        except Exception as e:
+            logger.error(f"Error adding captions with shortcap: {e}")
+            raise
 
-    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None):
+    async def create_video_from_storyboard(self, storyboard_project, task_id: str):
+        all_words = []
+        for segment in segments:
+            words = segment.get('words', [])
+            for word_data in words:
+                word_text = word_data.get('word', '').strip()
+                if word_text:
+                    all_words.append({
+                        'text': word_text,
+                        'start': word_data.get('start', 0),
+                        'end': word_data.get('end', 0)
+                    })
+        
+        if not all_words:
+            logger.warning("No words found for captions")
+            return
+        
+        # Group words into 2-line phrases (roughly 8-12 words per phrase)
+        phrases = []
+        current_phrase = []
+        words_per_phrase = 10
+        
+        for i, word in enumerate(all_words):
+            current_phrase.append(word)
+            
+            # Create phrase when we have enough words or reach the end
+            if len(current_phrase) >= words_per_phrase or i == len(all_words) - 1:
+                if current_phrase:
+                    phrases.append({
+                        'words': current_phrase.copy(),
+                        'start': current_phrase[0]['start'],
+                        'end': current_phrase[-1]['end']
+                    })
+                    current_phrase = []
+        
+        # Create text clips for each phrase with word-by-word highlighting
+        text_clips = []
+        
+        for phrase in phrases:
+            phrase_words = phrase['words']
+            phrase_start = phrase['start']
+            phrase_end = phrase['end']
+            
+            # Split words into 2 lines (roughly equal)
+            mid_point = len(phrase_words) // 2
+            line1_words = phrase_words[:mid_point]
+            line2_words = phrase_words[mid_point:]
+            
+            # For each word timing, create the full 2-line caption with appropriate highlighting
+            for word_idx, current_word in enumerate(phrase_words):
+                word_start = current_word['start']
+                word_end = current_word['end']
+                word_duration = word_end - word_start
+                
+                # Build line 1 with individual word clips
+                line1_word_clips = []
+                line1_x_offset = 0
+                
+                for w in line1_words:
+                    is_current = (w == current_word)
+                    color = 'yellow' if is_current else 'white'
+                    text = w['text'].upper() if is_current else w['text']
+                    
+                    try:
+                        word_clip = TextClip(
+                            text,
+                            fontsize=70,
+                            color=color,
+                            font=font_path,
+                            stroke_color='black',
+                            stroke_width=2,
+                            method='label'
+                        ).set_start(word_start).set_duration(word_duration)
+                        
+                        line1_word_clips.append(word_clip)
+                    except Exception as e:
+                        logger.warning(f"Failed to create word clip for '{text}': {e}")
+                
+                # Build line 2 with individual word clips  
+                line2_word_clips = []
+                
+                for w in line2_words:
+                    is_current = (w == current_word)
+                    color = 'yellow' if is_current else 'white'
+                    text = w['text'].upper() if is_current else w['text']
+                    
+                    try:
+                        word_clip = TextClip(
+                            text,
+                            fontsize=70,
+                            color=color,
+                            font=font_path,
+                            stroke_color='black',
+                            stroke_width=2,
+                            method='label'
+                        ).set_start(word_start).set_duration(word_duration)
+                        
+                        line2_word_clips.append(word_clip)
+                    except Exception as e:
+                        logger.warning(f"Failed to create word clip for '{text}': {e}")
+                
+                # Position line 1 words horizontally
+                line1_total_width = sum(clip.size[0] + 15 for clip in line1_word_clips)  # 15px spacing
+                line1_start_x = (video.w - line1_total_width) / 2
+                
+                for clip in line1_word_clips:
+                    clip_positioned = clip.set_position((line1_start_x, video.h * 0.70))
+                    text_clips.append(clip_positioned)
+                    line1_start_x += clip.size[0] + 15
+                
+                # Position line 2 words horizontally
+                line2_total_width = sum(clip.size[0] + 15 for clip in line2_word_clips)
+                line2_start_x = (video.w - line2_total_width) / 2
+                
+                for clip in line2_word_clips:
+                    clip_positioned = clip.set_position((line2_start_x, video.h * 0.78))
+                    text_clips.append(clip_positioned)
+                    line2_start_x += clip.size[0] + 15
+        
+        logger.info(f"📝 Compositing {len(text_clips)} caption elements onto video...")
+        final_video = CompositeVideoClip([video] + text_clips)
+        
+        logger.info(f"📝 Writing output video...")
+        final_video.write_videofile(
+            output_file,
+            codec='libx264',
+            audio_codec='aac',
+            fps=video.fps,
+            preset='medium',
+            threads=4
+        )
+        
+        # Clean up
+        video.close()
+        final_video.close()
+        for clip in text_clips:
+            clip.close()
+
+    async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None, task_id=None):
         audio_dir = os.path.join(story_dir, "audio")
         os.makedirs(audio_dir, exist_ok=True)
         video_path = os.path.join(story_dir, "story_video.mp4")
@@ -250,14 +626,33 @@ class VideoGenerator:
             for scene in storyboard_project['storyboards']:
                 # Generate audio for the subtitle
                 audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
-                success = await self.audio_generator.generate_audio(scene['subtitles'], audio_file, voice_name)
-                if not success:
-                    logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
-                    continue
+                
+                # Check if audio already exists (from earlier processing step)
+                if os.path.exists(audio_file):
+                    logger.info(f"♻️ Audio file already exists for scene {scene['scene_number']}, skipping generation")
+                else:
+                    success = await self.audio_generator.generate_audio(scene['subtitles'], audio_file, voice_name)
+                    if not success:
+                        logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
+                        continue
 
                 # Create audio clip to get duration
                 audio_clip = AudioFileClip(audio_file)
                 duration = audio_clip.duration
+                
+                # Store duration in scene for later use
+                scene['audio_duration'] = duration
+                logger.info(f"Scene {scene['scene_number']} audio duration: {duration:.2f}s")
+                
+                # Update database with audio duration if task_id is provided
+                # (only if not already set - avoid unnecessary DB writes)
+                if task_id and scene.get('audio_duration') != duration:
+                    await Image.update_by_task_and_scene(
+                        task_id=task_id,
+                        scene_number=scene['scene_number'],
+                        audio_duration=duration
+                    )
+                    logger.info(f"✅ Updated database: scene {scene['scene_number']} audio_duration={duration:.2f}s")
                 
                 # Transcribe audio with Whisper to get accurate word-level timing
                 logger.info(f"Transcribing scene {scene['scene_number']} for accurate timing...")
@@ -307,7 +702,7 @@ class VideoGenerator:
             
             # Report progress after audio/transcription phase (50-60%)
             if progress_callback:
-                await progress_callback(0.91, "Processing clips...")
+                await progress_callback(0.52, "Processing clips...")
             
             # Image processing and clip creation phase
             start_clips = time.time()
@@ -317,73 +712,126 @@ class VideoGenerator:
                     continue
                 audio_clip = AudioFileClip(audio_file)
                 
-                # Download and use the image - detect extension from URL
-                image_url = scene['image']
-                image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
-                image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
-                downloaded_image = await download_image(image_url, image_path)
+                # Check if this scene has a video clip (animated) or just static image
+                video_clip_url = scene.get('video_clip_url')
+                logger.debug(f"Scene {scene['scene_number']} video_clip_url: {video_clip_url}")
                 
-                if downloaded_image is None:
-                    logger.error(f"Skipping scene {scene['scene_number']} due to image download failure")
-                    continue
+                if video_clip_url:
+                    # Use animated video clip
+                    logger.info(f"🎬 Using video clip for scene {scene['scene_number']}: {video_clip_url}")
+                    video_ext = '.mp4'
+                    scene_video_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{video_ext}")
+                    downloaded_video = await download_image(video_clip_url, scene_video_path)  # Reuse download function
+                    
+                    if downloaded_video is None or not os.path.exists(downloaded_video):
+                        logger.error(f"Failed to download video clip for scene {scene['scene_number']}, falling back to static image")
+                        video_clip_url = None  # Fall back to static image
+                    else:
+                        logger.info(f"Successfully downloaded video clip for scene {scene['scene_number']}: {downloaded_video}")
                 
-                # Validate the downloaded image file exists and has content
-                if not os.path.exists(downloaded_image) or os.path.getsize(downloaded_image) == 0:
-                    logger.error(f"Skipping scene {scene['scene_number']}: image file is missing or empty")
-                    continue
+                if not video_clip_url:
+                    # Download and use the static image
+                    image_url = scene['image']
+                    image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
+                    image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
+                    downloaded_image = await download_image(image_url, image_path)
                 
-                logger.info(f"Successfully downloaded image for scene {scene['scene_number']}: {downloaded_image} ({os.path.getsize(downloaded_image)} bytes)")
+                    if downloaded_image is None:
+                        logger.error(f"Skipping scene {scene['scene_number']} due to image download failure")
+                        continue
+                
+                    # Validate the downloaded image file exists and has content
+                    if not os.path.exists(downloaded_image) or os.path.getsize(downloaded_image) == 0:
+                        logger.error(f"Skipping scene {scene['scene_number']}: image file is missing or empty")
+                        continue
+                
+                    logger.info(f"Successfully downloaded image for scene {scene['scene_number']}: {downloaded_image} ({os.path.getsize(downloaded_image)} bytes)")
                 
                 # Video dimensions (9:16 aspect ratio)
                 video_width = 1080
                 video_height = 1920
                 
                 try:
-                    # Create image clip and resize to fill the entire frame
-                    temp_clip = ImageClip(downloaded_image)
-                    
-                    # Validate image dimensions
-                    if temp_clip.w == 0 or temp_clip.h == 0:
-                        logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
-                        continue
-                    
-                    logger.info(f"Scene {scene['scene_number']} image dimensions: {temp_clip.w}x{temp_clip.h}")
-                    
-                    # Calculate scaling to fill frame (crop excess)
-                    clip_aspect = temp_clip.w / temp_clip.h
-                    video_aspect = video_width / video_height
-                    
-                    if clip_aspect > video_aspect:
-                        # Image is wider - scale by height and crop width
-                        new_width = int(temp_clip.w * (video_height / temp_clip.h))
-                        logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
-                        image_clip = (temp_clip
-                                     .resize(height=video_height)
-                                     .crop(x_center=new_width/2, width=video_width, height=video_height)
-                                     .set_duration(audio_clip.duration))
+                    if video_clip_url and os.path.exists(downloaded_video):
+                        # Use video clip - import VideoFileClip
+                        from moviepy.editor import VideoFileClip
+                        
+                        # Load the video clip
+                        temp_clip = VideoFileClip(downloaded_video)
+                        logger.info(f"Scene {scene['scene_number']} video clip dimensions: {temp_clip.w}x{temp_clip.h}, duration: {temp_clip.duration}s")
+                        
+                        # Calculate scaling to fill frame (crop excess)
+                        clip_aspect = temp_clip.w / temp_clip.h
+                        video_aspect = video_width / video_height
+                        
+                        if clip_aspect > video_aspect:
+                            # Video is wider - scale by height and crop width
+                            new_width = int(temp_clip.w * (video_height / temp_clip.h))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
+                            video_clip = (temp_clip
+                                         .resize(height=video_height)
+                                         .crop(x_center=new_width/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        else:
+                            # Video is taller - scale by width and crop height  
+                            new_height = int(temp_clip.h * (video_width / temp_clip.w))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
+                            video_clip = (temp_clip
+                                         .resize(width=video_width)
+                                         .crop(y_center=new_height/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        
+                        # Replace audio with generated speech
+                        video_clip = video_clip.set_audio(audio_clip)
+                        
                     else:
-                        # Image is taller - scale by width and crop height  
-                        new_height = int(temp_clip.h * (video_width / temp_clip.w))
-                        logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
-                        image_clip = (temp_clip
-                                     .resize(width=video_width)
-                                     .crop(y_center=new_height/2, width=video_width, height=video_height)
-                                     .set_duration(audio_clip.duration))
+                        # Use static image with zoom effect
+                        # Create image clip and resize to fill the entire frame
+                        temp_clip = ImageClip(downloaded_image)
                     
-                    # Combine image, text, and audio
-                    video_clip = image_clip.set_audio(audio_clip)
+                        # Validate image dimensions
+                        if temp_clip.w == 0 or temp_clip.h == 0:
+                            logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
+                            continue
+                        
+                        logger.info(f"Scene {scene['scene_number']} image dimensions: {temp_clip.w}x{temp_clip.h}")
+                        
+                        # Calculate scaling to fill frame (crop excess)
+                        clip_aspect = temp_clip.w / temp_clip.h
+                        video_aspect = video_width / video_height
+                        
+                        if clip_aspect > video_aspect:
+                            # Image is wider - scale by height and crop width
+                            new_width = int(temp_clip.w * (video_height / temp_clip.h))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
+                            image_clip = (temp_clip
+                                         .resize(height=video_height)
+                                         .crop(x_center=new_width/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        else:
+                            # Image is taller - scale by width and crop height  
+                            new_height = int(temp_clip.h * (video_width / temp_clip.w))
+                            logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
+                            image_clip = (temp_clip
+                                         .resize(width=video_width)
+                                         .crop(y_center=new_height/2, width=video_width, height=video_height)
+                                         .set_duration(audio_clip.duration))
+                        
+                        # Combine image and audio
+                        video_clip = image_clip.set_audio(audio_clip)
                     
                     # Add audio fade in/out to prevent artifacts between clips
                     video_clip = video_clip.audio_fadein(0.1).audio_fadeout(0.1)
 
-                    # Apply transition effect
-                    transition_type = scene['transition_type']
+                    # Apply transition effect (only for static images, not video clips)
+                    transition_type = scene.get('transition_type', 'zoom-in')  # Default to zoom-in for static images
                     
-                    logger.info(f"Adding clip for scene {scene['scene_number']} with transition: {transition_type}")
+                    logger.info(f"Adding clip for scene {scene['scene_number']} (type: {'video' if video_clip_url else 'image'}) with transition: {transition_type}")
                         
-                    if transition_type == 'zoom-in':
+                    # Only apply zoom transitions to static images
+                    if not video_clip_url and transition_type == 'zoom-in':
                         clips.append(zoom(video_clip))
-                    elif transition_type == 'zoom-out':
+                    elif not video_clip_url and transition_type == 'zoom-out':
                         clips.append(zoom(video_clip, mode='out'))
                     else:
                         clips.append(video_clip)
@@ -404,7 +852,7 @@ class VideoGenerator:
             # Add closing screen
             start_closing = time.time()
             if progress_callback:
-                await progress_callback(0.915, "Creating closing screen...")
+                await progress_callback(0.60, "Creating closing screen...")
             closing_screen = self.create_closing_screen(duration=4)
             if closing_screen:
                 clips.append(closing_screen)
@@ -416,7 +864,7 @@ class VideoGenerator:
                 clips[-2] = clips[-2].audio_fadeout(0.3)
             
             if progress_callback:
-                await progress_callback(0.918, "Combining clips...")
+                await progress_callback(0.70, "Combining clips...")
             
             start_concat = time.time()
             final_clip = concatenate_videoclips(clips, method="compose")
@@ -426,7 +874,7 @@ class VideoGenerator:
             # Optimized settings: faster preset, lower fps for speed
             start_encoding = time.time()
             if progress_callback:
-                await progress_callback(0.92, "Encoding video...")
+                await progress_callback(0.80, "Encoding video...")
             
             await asyncio.to_thread(
                 final_clip.write_videofile,
@@ -446,11 +894,24 @@ class VideoGenerator:
 
             start_captions = time.time()
             if progress_callback:
-                await progress_callback(0.96, "Adding captions...")
+                await progress_callback(0.90, "Adding captions...")
+            
+            logger.info(f"🎯 Starting caption addition phase at 90% progress")
+            logger.info(f"  Total subtitle segments: {len(subtitle_segments)}")
+            logger.info(f"  Video path: {video_path}")
+            logger.info(f"  Caption font: {caption_font}")
             
             subtitle_video_path = video_path.replace('.mp4', '_subtitle.mp4')
-            await self.add_captions(video_path, subtitle_video_path, caption_font, custom_segments=subtitle_segments)
-            timings['caption_generation'] = time.time() - start_captions
+            logger.info(f"  Target subtitle video: {subtitle_video_path}")
+            
+            try:
+                await self.add_captions(video_path, subtitle_video_path, caption_font, custom_segments=subtitle_segments)
+                timings['caption_generation'] = time.time() - start_captions
+                logger.info(f"✅ Caption generation completed in {timings['caption_generation']:.2f}s")
+            except Exception as caption_error:
+                logger.error(f"❌ FATAL: Caption generation failed: {type(caption_error).__name__}: {str(caption_error)}")
+                logger.error(f"  Stack trace:", exc_info=True)
+                raise
             
             timings['total'] = time.time() - start_total
             

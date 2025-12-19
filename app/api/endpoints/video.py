@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 router = APIRouter()
 video_task_processor = VideoTaskProcessor()
+logger = logging.getLogger(__name__)
 
 @router.get("/video/config")
 async def get_video_config():
@@ -88,11 +89,199 @@ async def get_task_status(task_id: str, current_user: dict = Depends(get_current
         images=[ImageStatus(
             id=image.id,
             status=image.status,
+            scene_number=image.scene_number,
             urls=image.urls,
             subtitles=image.subtitles,
+            enhanced_prompt=image.enhanced_prompt,
+            video_generation_request=image.video_generation_request,
+            video_clip_url=image.video_clip_url,
             created_at=image.created_at,
             updated_at=image.updated_at
         ) for image in images],
         created_at=task.created_at,
         updated_at=task.updated_at
     )
+
+@router.post("/video/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Cancel a running or queued video generation task.
+    This will mark the task as failed and stop further processing.
+    
+    Note: For video clips being generated via Runware, this stops polling
+    but the videos may still complete on Runware's servers.
+    """
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Check if task can be cancelled
+    if task.status == "completed":
+        raise HTTPException(status_code=400, detail="Cannot cancel a completed task")
+    
+    # If already failed/cancelled, return success (idempotent)
+    if task.status == "failed":
+        logger.info(f"Task {task_id} already cancelled/failed")
+        return {
+            "task_id": task_id,
+            "status": "failed",
+            "message": "Task already cancelled",
+            "clips_cancelled": 0
+        }
+    
+    # Update task status to failed with cancellation message
+    await task.update(
+        task_id=task_id,
+        status="failed",
+        error_message="Task cancelled by user",
+        status_message="Task cancelled"
+    )
+    
+    # Also cancel any video clips being generated
+    from app.models.image import Image
+    images = await Image.list_by_task(task_id)
+    cancelled_clips = 0
+    for image in images:
+        if image.video_clip_status == 'processing':
+            await image.update(
+                image_id=image.id,
+                video_clip_status='failed',
+                error_message='Cancelled by user'
+            )
+            cancelled_clips += 1
+    
+    logger.info(f"Task {task_id} cancelled by user. {cancelled_clips} video clips cancelled.")
+    
+    return {
+        "task_id": task_id,
+        "status": "failed",
+        "message": f"Task cancelled successfully. {cancelled_clips} video clips stopped.",
+        "clips_cancelled": cancelled_clips
+    }
+
+@router.delete("/video/tasks/{task_id}")
+async def delete_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Delete a completed or failed video generation task from the database.
+    This will permanently remove the task and all associated images.
+    
+    Note: Only completed or failed tasks can be deleted.
+    """
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Only allow deletion of completed or failed tasks
+    if task.status not in ["completed", "failed"]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Only completed or failed tasks can be deleted. Cancel active tasks first."
+        )
+    
+    # Delete associated images first
+    from app.models.image import Image
+    images = await Image.list_by_task(task_id)
+    for image in images:
+        await Image.delete(image.id)
+    
+    # Delete the task
+    success = await VideoTask.delete(task_id)
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete task")
+    
+    logger.info(f"Task {task_id} and {len(images)} associated images deleted by user")
+    
+    return {
+        "task_id": task_id,
+        "message": f"Task and {len(images)} associated images deleted successfully"
+    }
+
+@router.get("/video/tasks")
+async def list_tasks(
+    limit: int = 20,
+    status: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    List all video generation tasks with optional status filter.
+    Returns tasks ordered by creation date (newest first).
+    """
+    tasks = await VideoTask.list_all(limit=limit, status_filter=status)
+    
+    return {
+        "tasks": [{
+            "task_id": task.id,
+            "status": task.status,
+            "progress": task.progress,
+            "status_message": task.status_message,
+            "custom_title": task.custom_title,
+            "created_at": task.created_at.isoformat() if task.created_at else None,
+            "updated_at": task.updated_at.isoformat() if task.updated_at else None
+        } for task in tasks],
+        "total": len(tasks)
+    }
+
+@router.post("/video/tasks/{task_id}/images/{image_id}/regenerate")
+async def regenerate_scene(
+    task_id: str,
+    image_id: str,
+    updates: dict,
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Regenerate a specific scene's image and/or video with updated prompts.
+    
+    Request body can contain:
+    - image_prompt: New prompt for image regeneration
+    - video_generation_request: Updated video generation parameters
+        - prompt: New motion prompt
+        - negative_prompt: New negative prompt
+    """
+    from app.db.session import async_session
+    from sqlalchemy.future import select
+    
+    # Verify task exists
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Get the image
+    async with async_session() as session:
+        result = await session.execute(
+            select(Image).where(Image.id == image_id, Image.task_id == task_id)
+        )
+        image = result.scalar_one_or_none()
+        
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found in this task")
+        
+        # Update image prompt if provided
+        if "image_prompt" in updates:
+            image.enhanced_prompt = updates["image_prompt"]
+            # TODO: Trigger image regeneration in background
+            logger.info(f"Updated image prompt for image {image_id}")
+        
+        # Update video generation request if provided
+        if "video_generation_request" in updates:
+            current_req = image.video_generation_request or {}
+            video_updates = updates["video_generation_request"]
+            
+            if "prompt" in video_updates:
+                current_req["prompt"] = video_updates["prompt"]
+            if "negative_prompt" in video_updates:
+                current_req["negative_prompt"] = video_updates["negative_prompt"]
+            
+            image.video_generation_request = current_req
+            # TODO: Trigger video clip regeneration in background
+            logger.info(f"Updated video prompts for image {image_id}")
+        
+        await session.commit()
+    
+    return {
+        "task_id": task_id,
+        "image_id": image_id,
+        "message": "Prompts updated successfully. Regeneration functionality coming soon.",
+        "updates": updates
+    }
