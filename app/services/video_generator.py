@@ -282,7 +282,7 @@ class VideoGenerator:
             return
         
         # Constants for caption layout
-        MAX_WORDS_PER_LINE = 5
+        MAX_WORDS_PER_CAPTION_LINE = 5  # Max words on each line of a 2-line caption
         MAX_LINE_WIDTH = int(video.w * 0.90)  # 90% of video width
         FONT_SIZE = 80
         WORD_SPACING = 10
@@ -306,10 +306,10 @@ class VideoGenerator:
             current_phrase_words.append(word)
             
             # Check if we should break into a new phrase
-            # Break if we have enough words for 2 lines (at least 2 words)
             if len(current_phrase_words) >= 2:
                 # Try to split into 2 lines, ensuring each line doesn't exceed max width or word count
                 best_split = None
+                best_split_point = None
                 
                 # Try different split points (from 1 to len-1)
                 for split_point in range(1, len(current_phrase_words)):
@@ -317,36 +317,40 @@ class VideoGenerator:
                     line2_words = current_phrase_words[split_point:]
                     
                     # Check constraints
-                    if (len(line1_words) <= MAX_WORDS_PER_LINE and 
-                        len(line2_words) <= MAX_WORDS_PER_LINE and
+                    if (len(line1_words) <= MAX_WORDS_PER_CAPTION_LINE and 
+                        len(line2_words) <= MAX_WORDS_PER_CAPTION_LINE and
                         calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
                         calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
                         
-                        # Prefer balanced splits (close to equal number of words)
+                        # Found a valid split - prefer balanced ones
                         best_split = (line1_words, line2_words)
-                        
-                        # If we have a good balanced split, keep going
-                        if len(line1_words) + len(line2_words) >= 8:
-                            # We have enough words, commit this phrase
-                            break
+                        best_split_point = split_point
                 
-                # If we found a valid split and have enough words, or if line would be too wide
-                if best_split and len(current_phrase_words) >= 8:
+                # Decide when to commit the phrase
+                should_commit = False
+                
+                if best_split:
+                    # We have a valid split - commit if:
+                    # 1. We have enough words for a good phrase (6+)
+                    # 2. OR we're at risk of exceeding limits on next word
+                    if len(current_phrase_words) >= 6:
+                        should_commit = True
+                    elif len(current_phrase_words) >= MAX_WORDS_PER_CAPTION_LINE:
+                        # One line is at max, commit now
+                        should_commit = True
+                else:
+                    # No valid split found - we MUST break now to respect constraints
+                    should_commit = True
+                    # Find best split even if it violates constraints (emergency break)
+                    mid = len(current_phrase_words) // 2
+                    best_split = (current_phrase_words[:mid], current_phrase_words[mid:])
+                    logger.warning(f"⚠️ Emergency break: No valid split found for {len(current_phrase_words)} words")
+                
+                if should_commit:
                     line1_words, line2_words = best_split
                     phrases.append({
                         'line1': line1_words,
                         'line2': line2_words,
-                        'start': current_phrase_words[0]['start'],
-                        'end': current_phrase_words[-1]['end'],
-                        'all_words': current_phrase_words
-                    })
-                    current_phrase_words = []
-                elif len(current_phrase_words) >= MAX_WORDS_PER_LINE * 2:
-                    # Force break if we exceed max total words
-                    mid = len(current_phrase_words) // 2
-                    phrases.append({
-                        'line1': current_phrase_words[:mid],
-                        'line2': current_phrase_words[mid:],
                         'start': current_phrase_words[0]['start'],
                         'end': current_phrase_words[-1]['end'],
                         'all_words': current_phrase_words
@@ -365,17 +369,37 @@ class VideoGenerator:
                     'all_words': current_phrase_words
                 })
             else:
-                # Multiple words - split them
-                mid = len(current_phrase_words) // 2
+                # Multiple words - try to split respecting constraints
+                best_split = None
+                for split_point in range(1, len(current_phrase_words)):
+                    line1_words = current_phrase_words[:split_point]
+                    line2_words = current_phrase_words[split_point:]
+                    
+                    if (len(line1_words) <= MAX_WORDS_PER_CAPTION_LINE and 
+                        len(line2_words) <= MAX_WORDS_PER_CAPTION_LINE and
+                        calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
+                        calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
+                        best_split = (line1_words, line2_words)
+                        break
+                
+                if best_split:
+                    line1_words, line2_words = best_split
+                else:
+                    # Emergency: just split in middle
+                    mid = len(current_phrase_words) // 2
+                    line1_words = current_phrase_words[:mid] if mid > 0 else current_phrase_words
+                    line2_words = current_phrase_words[mid:] if mid < len(current_phrase_words) else []
+                    logger.warning(f"⚠️ Emergency split for remaining {len(current_phrase_words)} words")
+                
                 phrases.append({
-                    'line1': current_phrase_words[:mid],
-                    'line2': current_phrase_words[mid:],
+                    'line1': line1_words,
+                    'line2': line2_words,
                     'start': current_phrase_words[0]['start'],
                     'end': current_phrase_words[-1]['end'],
                     'all_words': current_phrase_words
                 })
         
-        logger.info(f"Created {len(phrases)} two-line phrases (max {MAX_WORDS_PER_LINE} words per line, max width {MAX_LINE_WIDTH}px)")
+        logger.info(f"Created {len(phrases)} two-line phrases (max {MAX_WORDS_PER_CAPTION_LINE} words per line, max width {MAX_LINE_WIDTH}px)")
         
         # Validate phrases and log any issues
         for idx, phrase in enumerate(phrases):
@@ -386,10 +410,10 @@ class VideoGenerator:
                 logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max width: {line1_width}px > {MAX_LINE_WIDTH}px ({len(phrase['line1'])} words)")
             if line2_width > MAX_LINE_WIDTH:
                 logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max width: {line2_width}px > {MAX_LINE_WIDTH}px ({len(phrase['line2'])} words)")
-            if len(phrase['line1']) > MAX_WORDS_PER_LINE:
-                logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max words: {len(phrase['line1'])} > {MAX_WORDS_PER_LINE}")
-            if len(phrase['line2']) > MAX_WORDS_PER_LINE:
-                logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max words: {len(phrase['line2'])} > {MAX_WORDS_PER_LINE}")
+            if len(phrase['line1']) > MAX_WORDS_PER_CAPTION_LINE:
+                logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max words: {len(phrase['line1'])} > {MAX_WORDS_PER_CAPTION_LINE}")
+            if len(phrase['line2']) > MAX_WORDS_PER_CAPTION_LINE:
+                logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max words: {len(phrase['line2'])} > {MAX_WORDS_PER_CAPTION_LINE}")
         
         # FIXED APPROACH: Persistent white base + yellow overlays for consistency
         caption_clips = []
