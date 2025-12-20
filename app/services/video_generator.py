@@ -1,6 +1,13 @@
 import os
 import asyncio
 import time
+
+# Configure ImageMagick for MoviePy before importing
+import moviepy.config as moviepy_config
+IMAGEMAGICK_BINARY = r"C:\Program Files\ImageMagick-7.1.2-Q16-HDRI\magick.exe"
+if os.path.exists(IMAGEMAGICK_BINARY):
+    moviepy_config.change_settings({"IMAGEMAGICK_BINARY": IMAGEMAGICK_BINARY})
+
 from moviepy.editor import (
     ImageClip,
     concatenate_videoclips,
