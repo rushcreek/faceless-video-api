@@ -281,27 +281,115 @@ class VideoGenerator:
             video.close()
             return
         
-        # Group words into 2-line phrases (roughly 8 words per phrase)
-        words_per_phrase = 8
-        phrases = []
+        # Constants for caption layout
+        MAX_WORDS_PER_LINE = 5
+        MAX_LINE_WIDTH = int(video.w * 0.90)  # 90% of video width
+        FONT_SIZE = 80
+        WORD_SPACING = 10
         
-        for i in range(0, len(all_words), words_per_phrase):
-            phrase_words = all_words[i:i + words_per_phrase]
-            if phrase_words:
-                # Split into 2 lines (half on each line)
-                mid_point = len(phrase_words) // 2
-                line1_words = phrase_words[:mid_point]
-                line2_words = phrase_words[mid_point:]
+        # Helper function to calculate line width
+        def calculate_line_width(words_list):
+            total_width = 0
+            for w in words_list:
+                temp_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
+                total_width += temp_clip.w
+                temp_clip.close()
+            # Add spacing between words
+            total_width += WORD_SPACING * (len(words_list) - 1) if len(words_list) > 1 else 0
+            return total_width
+        
+        # Group words into 2-line phrases with proper width constraints
+        phrases = []
+        current_phrase_words = []
+        
+        for word in all_words:
+            current_phrase_words.append(word)
+            
+            # Check if we should break into a new phrase
+            # Break if we have enough words for 2 lines (at least 2 words)
+            if len(current_phrase_words) >= 2:
+                # Try to split into 2 lines, ensuring each line doesn't exceed max width or word count
+                best_split = None
                 
+                # Try different split points (from 1 to len-1)
+                for split_point in range(1, len(current_phrase_words)):
+                    line1_words = current_phrase_words[:split_point]
+                    line2_words = current_phrase_words[split_point:]
+                    
+                    # Check constraints
+                    if (len(line1_words) <= MAX_WORDS_PER_LINE and 
+                        len(line2_words) <= MAX_WORDS_PER_LINE and
+                        calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
+                        calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
+                        
+                        # Prefer balanced splits (close to equal number of words)
+                        best_split = (line1_words, line2_words)
+                        
+                        # If we have a good balanced split, keep going
+                        if len(line1_words) + len(line2_words) >= 8:
+                            # We have enough words, commit this phrase
+                            break
+                
+                # If we found a valid split and have enough words, or if line would be too wide
+                if best_split and len(current_phrase_words) >= 8:
+                    line1_words, line2_words = best_split
+                    phrases.append({
+                        'line1': line1_words,
+                        'line2': line2_words,
+                        'start': current_phrase_words[0]['start'],
+                        'end': current_phrase_words[-1]['end'],
+                        'all_words': current_phrase_words
+                    })
+                    current_phrase_words = []
+                elif len(current_phrase_words) >= MAX_WORDS_PER_LINE * 2:
+                    # Force break if we exceed max total words
+                    mid = len(current_phrase_words) // 2
+                    phrases.append({
+                        'line1': current_phrase_words[:mid],
+                        'line2': current_phrase_words[mid:],
+                        'start': current_phrase_words[0]['start'],
+                        'end': current_phrase_words[-1]['end'],
+                        'all_words': current_phrase_words
+                    })
+                    current_phrase_words = []
+        
+        # Handle remaining words
+        if current_phrase_words:
+            if len(current_phrase_words) == 1:
+                # Single word - put it on one line
                 phrases.append({
-                    'line1': line1_words,
-                    'line2': line2_words,
-                    'start': phrase_words[0]['start'],
-                    'end': phrase_words[-1]['end'],
-                    'all_words': phrase_words
+                    'line1': current_phrase_words,
+                    'line2': [],
+                    'start': current_phrase_words[0]['start'],
+                    'end': current_phrase_words[-1]['end'],
+                    'all_words': current_phrase_words
+                })
+            else:
+                # Multiple words - split them
+                mid = len(current_phrase_words) // 2
+                phrases.append({
+                    'line1': current_phrase_words[:mid],
+                    'line2': current_phrase_words[mid:],
+                    'start': current_phrase_words[0]['start'],
+                    'end': current_phrase_words[-1]['end'],
+                    'all_words': current_phrase_words
                 })
         
-        logger.info(f"Created {len(phrases)} two-line phrases")
+        logger.info(f"Created {len(phrases)} two-line phrases (max {MAX_WORDS_PER_LINE} words per line, max width {MAX_LINE_WIDTH}px)")
+        
+        # Validate phrases and log any issues
+        for idx, phrase in enumerate(phrases):
+            line1_width = calculate_line_width(phrase['line1']) if phrase['line1'] else 0
+            line2_width = calculate_line_width(phrase['line2']) if phrase['line2'] else 0
+            
+            if line1_width > MAX_LINE_WIDTH:
+                logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max width: {line1_width}px > {MAX_LINE_WIDTH}px ({len(phrase['line1'])} words)")
+            if line2_width > MAX_LINE_WIDTH:
+                logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max width: {line2_width}px > {MAX_LINE_WIDTH}px ({len(phrase['line2'])} words)")
+            if len(phrase['line1']) > MAX_WORDS_PER_LINE:
+                logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max words: {len(phrase['line1'])} > {MAX_WORDS_PER_LINE}")
+            if len(phrase['line2']) > MAX_WORDS_PER_LINE:
+                logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max words: {len(phrase['line2'])} > {MAX_WORDS_PER_LINE}")
         
         # FIXED APPROACH: Persistent white base + yellow overlays for consistency
         caption_clips = []
@@ -318,12 +406,12 @@ class VideoGenerator:
                 line1_shadow_clips = []
                 x_offset = 0
                 for w in phrase['line1']:
-                    shadow_clip = TextClip(w['text'], fontsize=80, color='black', font=font_path, method='label')
+                    shadow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='black', font=font_path, method='label')
                     positioned = shadow_clip.set_position((x_offset, 0))
                     line1_shadow_clips.append(positioned)
-                    x_offset += shadow_clip.w + 10
+                    x_offset += shadow_clip.w + WORD_SPACING
                 
-                line1_width = x_offset - 10
+                line1_width = x_offset - WORD_SPACING
                 line1_shadow = CompositeVideoClip(line1_shadow_clips, size=(line1_width, 100))
                 line1_x = (video.w - line1_width) // 2
                 line1_shadow = line1_shadow.set_position((line1_x + shadow_offset, caption_y + shadow_offset))
@@ -334,12 +422,12 @@ class VideoGenerator:
                 line2_shadow_clips = []
                 x_offset = 0
                 for w in phrase['line2']:
-                    shadow_clip = TextClip(w['text'], fontsize=80, color='black', font=font_path, method='label')
+                    shadow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='black', font=font_path, method='label')
                     positioned = shadow_clip.set_position((x_offset, 0))
                     line2_shadow_clips.append(positioned)
-                    x_offset += shadow_clip.w + 10
+                    x_offset += shadow_clip.w + WORD_SPACING
                 
-                line2_width = x_offset - 10
+                line2_width = x_offset - WORD_SPACING
                 line2_shadow = CompositeVideoClip(line2_shadow_clips, size=(line2_width, 100))
                 line2_x = (video.w - line2_width) // 2
                 line2_shadow = line2_shadow.set_position((line2_x + shadow_offset, caption_y + line_spacing + shadow_offset))
@@ -352,12 +440,12 @@ class VideoGenerator:
                 line1_word_clips = []
                 x_offset = 0
                 for w in phrase['line1']:
-                    word_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                    word_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
                     positioned = word_clip.set_position((x_offset, 0))
                     line1_word_clips.append(positioned)
-                    x_offset += word_clip.w + 10
+                    x_offset += word_clip.w + WORD_SPACING
                 
-                line1_width = x_offset - 10
+                line1_width = x_offset - WORD_SPACING
                 line1_base = CompositeVideoClip(line1_word_clips, size=(line1_width, 100))
                 line1_x = (video.w - line1_width) // 2
                 line1_base = line1_base.set_position((line1_x, caption_y))
@@ -369,12 +457,12 @@ class VideoGenerator:
                 line2_word_clips = []
                 x_offset = 0
                 for w in phrase['line2']:
-                    word_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
+                    word_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
                     positioned = word_clip.set_position((x_offset, 0))
                     line2_word_clips.append(positioned)
-                    x_offset += word_clip.w + 10
+                    x_offset += word_clip.w + WORD_SPACING
                 
-                line2_width = x_offset - 10
+                line2_width = x_offset - WORD_SPACING
                 line2_base = CompositeVideoClip(line2_word_clips, size=(line2_width, 100))
                 line2_x = (video.w - line2_width) // 2
                 line2_base = line2_base.set_position((line2_x, caption_y + line_spacing))
@@ -389,7 +477,7 @@ class VideoGenerator:
                     for i, w in enumerate(phrase['line1']):
                         if i == word_idx:
                             # Create yellow overlay for this word
-                            yellow_clip = TextClip(w['text'], fontsize=80, color='yellow', font=font_path, method='label')
+                            yellow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='yellow', font=font_path, method='label')
                             yellow_x = line1_x + x_offset
                             yellow_clip = yellow_clip.set_position((yellow_x, caption_y))
                             yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
@@ -397,8 +485,8 @@ class VideoGenerator:
                             break
                         else:
                             # Calculate offset to find position
-                            temp_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
-                            x_offset += temp_clip.w + 10
+                            temp_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
+                            x_offset += temp_clip.w + WORD_SPACING
                             temp_clip.close()
                 else:
                     # Word is on line 2
@@ -406,15 +494,15 @@ class VideoGenerator:
                     x_offset = 0
                     for i, w in enumerate(phrase['line2']):
                         if i == word_pos_in_line2:
-                            yellow_clip = TextClip(w['text'], fontsize=80, color='yellow', font=font_path, method='label')
+                            yellow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='yellow', font=font_path, method='label')
                             yellow_x = line2_x + x_offset
                             yellow_clip = yellow_clip.set_position((yellow_x, caption_y + line_spacing))
                             yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
                             caption_clips.append(yellow_clip)
                             break
                         else:
-                            temp_clip = TextClip(w['text'], fontsize=80, color='white', font=font_path, method='label')
-                            x_offset += temp_clip.w + 10
+                            temp_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
+                            x_offset += temp_clip.w + WORD_SPACING
                             temp_clip.close()
         
         logger.info(f"Created {len(caption_clips)} caption elements (base + overlays), compositing...")
