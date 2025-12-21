@@ -867,22 +867,24 @@ function displayRunningTasks(tasks) {
             const title = task.story_title || task.custom_title || 'Untitled Video';
             const createdAt = new Date(task.created_at).toLocaleString();
             const completedAt = task.updated_at ? new Date(task.updated_at).toLocaleString() : createdAt;
-            const costDisplay = task.total_cost != null ? `<div class="task-cost">💰 Cost: $${task.total_cost.toFixed(4)}</div>` : '';
+            const costDisplay = task.total_cost != null ? `$${task.total_cost.toFixed(4)}` : 'N/A';
             
             return `
-                <div class="task-card">
-                    <div class="task-info">
-                        <div class="task-title">${title}</div>
-                        <div class="task-id">ID: ${task.task_id}</div>
-                        <div class="task-meta">
-                            <span class="status-badge ${task.status}">${task.status}</span>
-                        </div>
-                        ${costDisplay}
-                        <div class="task-id" style="font-size: 0.75em; color: #999;">Completed: ${completedAt}</div>
+                <div class="task-card completed">
+                    <div class="task-info-compact">
+                        <span class="task-title-compact">${title}</span>
+                        <span class="task-separator">|</span>
+                        <span class="task-id-compact">${task.task_id.substring(0, 8)}...</span>
+                        <span class="task-separator">|</span>
+                        <span class="status-badge ${task.status}">${task.status}</span>
+                        <span class="task-separator">|</span>
+                        <span class="task-cost-compact">💰 ${costDisplay}</span>
+                        <span class="task-separator">|</span>
+                        <span class="task-time-compact">⏱ ${completedAt}</span>
                     </div>
-                    <div class="task-actions">
-                        <button class="btn-view" onclick="viewTaskDetails('${task.task_id}')">View</button>
-                        <button class="btn-delete" onclick="confirmDeleteTask('${task.task_id}')">Delete</button>
+                    <div class="task-actions-compact">
+                        <button class="btn-view-compact" onclick="viewTaskDetails('${task.task_id}')">View</button>
+                        <button class="btn-delete-compact" onclick="confirmDeleteTask('${task.task_id}')">×</button>
                     </div>
                 </div>
             `;

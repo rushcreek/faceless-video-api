@@ -55,6 +55,90 @@ async def replicate_flux_api(task_id: str, prompt: str, max_retries: int = 3) ->
     return None
 
 
+async def runware_pocketrag_image_api(task_id: str, prompt: str, max_retries: int = 3) -> Optional[dict]:
+    """Generate image for PocketRAG scenes using Flux.2 [dev] model
+    Returns dict with format: {"url": image_url, "cost": cost}
+    """
+    
+    POCKETRAG_MODEL = "runware:400@1"  # Flux.2 [dev]
+    
+    for attempt in range(max_retries):
+        runware = None
+        try:
+            # Initialize Runware client
+            runware = Runware(api_key=settings.RUNWARE_API_KEY)
+            await runware.connect()
+            
+            logger.info(f"📱 Generating PocketRAG image with Flux.2 [dev] model for task {task_id}...")
+            
+            # Create request with Flux.2 [dev] model
+            # Note: The prompt already includes instructions to show iPhone with PocketRAG screen
+            request_image = IImageInference(
+                positivePrompt=prompt,
+                model=POCKETRAG_MODEL,
+                width=576,
+                height=1024,
+                numberResults=1,
+                steps=28,
+                outputFormat="JPG"
+            )
+            
+            images = await runware.imageInference(requestImage=request_image)
+            
+            if images and len(images) > 0:
+                logger.debug(f"📊 PocketRAG image response: {images[0]}")
+                
+                # Extract URL
+                image_url = None
+                if hasattr(images[0], 'imageURL'):
+                    image_url = images[0].imageURL
+                elif hasattr(images[0], 'image_url'):
+                    image_url = images[0].image_url
+                elif hasattr(images[0], 'url'):
+                    image_url = images[0].url
+                elif isinstance(images[0], dict):
+                    image_url = images[0].get('imageURL') or images[0].get('image_url') or images[0].get('url')
+                
+                # Extract cost
+                cost = None
+                if hasattr(images[0], 'cost'):
+                    cost = images[0].cost
+                elif hasattr(images[0], 'credits'):
+                    cost = images[0].credits
+                elif isinstance(images[0], dict):
+                    cost = images[0].get('cost') or images[0].get('credits')
+                
+                if cost is not None:
+                    logger.info(f"💰 PocketRAG image cost: ${cost:.6f}")
+                
+                if image_url:
+                    logger.info(f"✅ PocketRAG image generated successfully: {image_url}")
+                    return {"url": image_url, "cost": cost}
+                else:
+                    logger.error(f"❌ Could not extract URL from PocketRAG image response")
+                    return None
+            else:
+                logger.error(f"❌ No images returned for PocketRAG generation")
+                return None
+                
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Error in runware_pocketrag_image_api (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                logger.info("Retrying...")
+                await asyncio.sleep(2)
+            else:
+                logger.error(f"Error in runware_pocketrag_image_api after {max_retries} attempts: {str(e)}")
+                return None
+        finally:
+            if runware:
+                try:
+                    await runware.close()
+                except Exception as close_error:
+                    logger.warning(f"Error closing Runware connection: {close_error}")
+    
+    return None
+
+
 async def runware_flux_api(task_id: str, prompt: str, max_retries: int = 3) -> Optional[dict]:
     """Generate a single image using Runware.ai Flux model (kept for compatibility)"""
     results = await runware_flux_batch_api(task_id, [prompt], max_retries)

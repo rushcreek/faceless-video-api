@@ -1,7 +1,7 @@
 import re
 from typing import Optional, Dict, Any, List, Callable
 from datetime import datetime
-from app.services.image_api import fal_flux_api, replicate_flux_api, runware_flux_api, runware_flux_batch_api
+from app.services.image_api import fal_flux_api, replicate_flux_api, runware_flux_api, runware_flux_batch_api, runware_pocketrag_image_api
 from app.core.config import settings
 from app.core.logging import logger
 from app.utils.helpers import create_blank_image
@@ -9,10 +9,22 @@ from app.models.image import Image
 # from app.models.image_task import ImageTask
 import asyncio
 import time
+from PIL import Image as PILImage
+import os
+import io
+import requests
 
 class ImageGenerator:
     def __init__(self, image_generator_func: Callable[[str], Optional[str]] = None):
         self.image_generator_func = image_generator_func
+        self.assets_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets")
+        self.prscreen_path = os.path.join(self.assets_path, "prscreen.png")
+    
+    def has_pocketrag_mention(self, text: str) -> bool:
+        """Check if text mentions PocketRAG in any form"""
+        text_lower = text.lower()
+        pocketrag_variations = ['pocketrag', 'pocket rag', 'pocket-rag']
+        return any(variation in text_lower for variation in pocketrag_variations)
     
     def prepare_prompt(
         self,
@@ -28,6 +40,13 @@ class ImageGenerator:
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
         enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
+        
+        # Check if PocketRAG is mentioned and add special instructions
+        if self.has_pocketrag_mention(prompt):
+            # Very explicit instruction that should override the scene description
+            pocketrag_instruction = "IMPORTANT: Show a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen must show the PocketRAG mobile app interface with clean modern UI elements, text, and controls visible on the screen. The phone should be the main focus of the image"
+            enhanced_prompt = f"{pocketrag_instruction} | {enhanced_prompt}"
+            logger.info(f"🎯 PocketRAG detected - adding iPhone display instruction")
         
         # Add tweak prompt if provided
         if tweak_prompt:
@@ -77,6 +96,13 @@ class ImageGenerator:
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
         enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
+        
+        # Check if PocketRAG is mentioned and add special instructions
+        if self.has_pocketrag_mention(prompt):
+            # Very explicit instruction that should override the scene description
+            pocketrag_instruction = "IMPORTANT: Show a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen must show the PocketRAG mobile app interface with clean modern UI elements, text, and controls visible on the screen. The phone should be the main focus of the image"
+            enhanced_prompt = f"{pocketrag_instruction} | {enhanced_prompt}"
+            logger.info(f"🎯 PocketRAG detected in scene - adding iPhone display instruction")
         
         # Add tweak prompt if provided
         if tweak_prompt:
@@ -131,15 +157,53 @@ class ImageGenerator:
         if settings.use_runware_flux:
             logger.info(f"🚀 Using Runware PARALLEL batch API for {total_images} images")
             
-            # Prepare all prompts first
+            # Separate PocketRAG scenes from regular scenes
+            pocketrag_scenes = []
+            regular_scenes = []
             enhanced_prompts = []
-            for storyboard in storyboard_project['storyboards']:
+            
+            for i, storyboard in enumerate(storyboard_project['storyboards']):
                 enhanced_prompt = self.prepare_prompt(storyboard, characters, art_style, tweak_prompt)
                 enhanced_prompts.append(enhanced_prompt)
+                
+                # Check if this scene mentions PocketRAG in description or subtitles
+                description = storyboard.get('description', '')
+                subtitles = storyboard.get('subtitles', '')
+                if self.has_pocketrag_mention(description) or self.has_pocketrag_mention(subtitles):
+                    pocketrag_scenes.append((i, enhanced_prompt))
+                    logger.info(f"📱 Scene {i+1} identified as PocketRAG scene")
+                else:
+                    regular_scenes.append((i, enhanced_prompt))
+                
                 logger.debug(f"Prepared prompt for scene {storyboard.get('scene_number')}: {enhanced_prompt[:100]}...")
             
-            # Generate ALL images in parallel
-            image_results = await runware_flux_batch_api(task_id, enhanced_prompts)
+            # Generate regular images in parallel batch
+            regular_prompts = [prompt for _, prompt in regular_scenes]
+            regular_image_results = []
+            if regular_prompts:
+                logger.info(f"📸 Generating {len(regular_prompts)} regular images in parallel...")
+                regular_image_results = await runware_flux_batch_api(task_id, regular_prompts)
+            
+            # Generate PocketRAG images individually with special model
+            pocketrag_image_results = []
+            if pocketrag_scenes:
+                logger.info(f"📱 Generating {len(pocketrag_scenes)} PocketRAG images with Flux.2 [dev]...")
+                for scene_idx, prompt in pocketrag_scenes:
+                    result = await runware_pocketrag_image_api(task_id, prompt)
+                    pocketrag_image_results.append(result)
+            
+            # Combine results in correct order
+            image_results = [None] * total_images
+            
+            # Place regular images
+            for i, (scene_idx, _) in enumerate(regular_scenes):
+                if i < len(regular_image_results):
+                    image_results[scene_idx] = regular_image_results[i]
+            
+            # Place PocketRAG images
+            for i, (scene_idx, _) in enumerate(pocketrag_scenes):
+                if i < len(pocketrag_image_results):
+                    image_results[scene_idx] = pocketrag_image_results[i]
             
             # Process results and update progress
             for i, (image_result, enhanced_prompt) in enumerate(zip(image_results, enhanced_prompts)):

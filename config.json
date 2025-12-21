@@ -78,8 +78,18 @@
         "cartesia_id": "3bf35adc-bcc4-464b-b834-c90c88cf6492"
       },
       {
-        "id": "friendly-sidekick",
-        "name": "Friendly Sidekick",
+        "id": "clyde",
+        "name": "Clyde",
+        "cartesia_id": "98a34ef2-2140-4c28-9c71-663dc4dd7022"
+      },
+      {
+        "id": "hugo",
+        "name": "Hugo",
+        "cartesia_id": "1463a4e1-56a1-4b41-b257-728d56e93605"
+      },
+      {
+        "id": "james",
+        "name": "James",
         "cartesia_id": "42b39f37-515f-4eee-8546-73e841679c1d"
       }
     ],

@@ -73,6 +73,9 @@ class StoryGenerator:
         response = await call_openai_api(self.client, messages, model=self.character_model)
         if not response:
             logger.error("API returned empty response")
+            return []
+        
+        logger.info(f"Character generation response: {response[:500]}...")  # Log first 500 chars
         
         try:
             return json.loads(response)
@@ -83,10 +86,10 @@ class StoryGenerator:
                 try:
                     return json.loads(array_match.group())
                 except json.JSONDecodeError:
-                    logger.error("Failed to parse the response as a JSON array.")
+                    logger.error(f"Failed to parse the response as a JSON array. Response: {response}")
                     return []
             else:
-                logger.error("No JSON array found in the response.")
+                logger.error(f"No JSON array found in the response. Response: {response}")
                 return []
 
     async def generate_video_prompt(self, scene_description: str, art_style: Optional[str] = None) -> Dict[str, Any]:

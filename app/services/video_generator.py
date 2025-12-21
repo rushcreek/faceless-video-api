@@ -850,7 +850,12 @@ class VideoGenerator:
                 
                 if not video_clip_url:
                     # Download and use the static image
-                    image_url = scene['image']
+                    image_url = scene.get('image')
+                    
+                    if not image_url:
+                        logger.error(f"Skipping scene {scene['scene_number']}: no image URL available")
+                        continue
+                    
                     image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
                     image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
                     downloaded_image = await download_image(image_url, image_path)

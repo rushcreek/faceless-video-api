@@ -490,6 +490,93 @@ textarea {
     transition: box-shadow 0.3s;
 }
 
+/* Compact single-line layout for completed tasks */
+.task-card.completed {
+    padding: 8px 12px;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.task-info-compact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85em;
+    overflow: hidden;
+}
+
+.task-title-compact {
+    font-weight: 600;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.task-id-compact {
+    font-family: 'Courier New', monospace;
+    color: #666;
+    font-size: 0.9em;
+}
+
+.task-separator {
+    color: #ddd;
+    font-weight: 300;
+}
+
+.task-cost-compact {
+    color: #4CAF50;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.task-time-compact {
+    color: #888;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.task-actions-compact {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.btn-view-compact {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85em;
+    white-space: nowrap;
+    transition: opacity 0.3s;
+}
+
+.btn-view-compact:hover {
+    opacity: 0.9;
+}
+
+.btn-delete-compact {
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1.1em;
+    font-weight: bold;
+    line-height: 1;
+    transition: opacity 0.3s;
+}
+
+.btn-delete-compact:hover {
+    opacity: 0.9;
+}
+
 .task-card:hover {
     box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 }
