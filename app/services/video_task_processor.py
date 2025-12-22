@@ -128,16 +128,31 @@ class VideoTaskProcessor:
             image_urls = await self.image_generator.generate_images(task_id, storyboard_project, combined_art_style, tweak_prompt, progress_callback=image_progress_callback)
             if not image_urls:
                 raise ValueError("Failed to generate images")
+            
+            # Log what we got back from image generation
+            logger.info(f"📸 Image generation returned {len(image_urls)} URLs")
+            for idx, url in enumerate(image_urls):
+                if url:
+                    logger.info(f"  Scene {idx+1}: {url[:80]}...")
+                else:
+                    logger.warning(f"  Scene {idx+1}: NULL/EMPTY URL")
+            
             await task.update(task_id=task_id, progress=0.45, status_message="Images generated")
 
             # Step 5: Save images to database
             image_create_tasks = []
             for i, image_url in enumerate(image_urls):
                 storyboard_scene = storyboard_project["storyboards"][i]
+                scene_number = storyboard_scene.get("scene_number", i + 1)
+                
+                logger.info(f"💾 Saving scene {scene_number} to database: URL={'Present' if image_url else 'MISSING'}")
+                if not image_url:
+                    logger.error(f"❌ Scene {scene_number} has NO IMAGE URL - will be saved as empty")
+                
                 image_data = {
                     "id": str(uuid4()),
                     "task_id": task_id,
-                    "scene_number": storyboard_scene.get("scene_number", i + 1),  # Preserve scene order from storyboard
+                    "scene_number": scene_number,  # Preserve scene order from storyboard
                     "urls": [image_url] if image_url else [],
                     "subtitles": storyboard_scene["subtitles"],  # Use actual subtitles from storyboard, not description
                     "status": "completed" if image_url else "failed",
@@ -148,7 +163,30 @@ class VideoTaskProcessor:
                     "error_message": storyboard_scene.get("error_message", "")
                 }
                 image_create_tasks.append(Image.create(**image_data))
+            
+            logger.info(f"💾 Saving {len(image_create_tasks)} image records to database...")
             await asyncio.gather(*image_create_tasks)
+            logger.info(f"✅ All {len(image_create_tasks)} image records saved to database")
+            
+            # Verify what was actually saved
+            saved_images = await Image.list_by_task(task_id)
+            logger.info(f"🔍 Verification: Found {len(saved_images)} images in database for task {task_id}")
+            
+            # Check for any failed images and fatal error if found
+            failed_images = []
+            for img in saved_images:
+                url_status = f"URL: {img.urls[0][:80]}..." if img.urls else "NO URLs"
+                logger.info(f"  Scene {img.scene_number}: {img.status} - {url_status}")
+                
+                if img.status == "failed" or not img.urls:
+                    failed_images.append(f"Scene {img.scene_number}")
+            
+            if failed_images:
+                error_msg = f"Image generation failed for {len(failed_images)} scene(s): {', '.join(failed_images)}. Cannot proceed with video generation."
+                logger.error(f"❌ FATAL: {error_msg}")
+                await task.update(task_id=task_id, status="failed", error_message=error_msg)
+                raise ValueError(error_msg)
+            
             await task.update(task_id=task_id, progress=0.50, status_message="Images saved")
 
             # Check if task was cancelled

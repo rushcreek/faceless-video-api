@@ -40,8 +40,8 @@ class StoryGenerator:
 
             Guidelines:
             - Include the character's name as it appears in the story.
-            - Specify the character's ethnicity if it's relevant and discernible from the story.
-            - State the character's gender.
+            - For ethnicity: Unless the story explicitly specifies otherwise, create a diverse mix with the following distribution: 60% white (Caucasian), 30% Black (African American), 10% other ethnicities.
+            - For gender: Unless the story specifies, create a balanced mix of male and female characters, with a slight preference for male characters in professional/business contexts.
             - Specify the character's age or apparent age range.
             - For facial features, include details about eyes, nose, mouth, chin, forehead, cheekbones, and overall face shape. Include any notable unique features like scars, birthmarks, or facial hair.
             - Describe the character's body type, including height and build.

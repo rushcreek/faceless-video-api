@@ -36,6 +36,12 @@ class VideoGenerator:
         self.font_path = os.path.join(settings.BASE_DIR, "resources/fonts")
         self.assets_path = os.path.join(os.path.dirname(settings.BASE_DIR), "assets")
     
+    def has_pocketrag_mention(self, text: str) -> bool:
+        """Check if text mentions PocketRAG in any form"""
+        text_lower = text.lower()
+        pocketrag_variations = ['pocketrag', 'pocket rag', 'pocket-rag']
+        return any(variation in text_lower for variation in pocketrag_variations)
+    
     def align_script_with_transcription(self, original_text, transcription_words):
         """
         Align original script words (with punctuation) to Whisper transcription words (with timing).
@@ -282,7 +288,7 @@ class VideoGenerator:
             return
         
         # Constants for caption layout
-        MAX_WORDS_PER_CAPTION_LINE = 5  # Max words on each line of a 2-line caption
+        MAX_WORDS_PER_CAPTION_LINE = 4 # Max words on each line of a 2-line caption
         MAX_LINE_WIDTH = int(video.w * 0.90)  # 90% of video width
         FONT_SIZE = 80
         WORD_SPACING = 10
@@ -305,11 +311,10 @@ class VideoGenerator:
         for word in all_words:
             current_phrase_words.append(word)
             
-            # Check if we should break into a new phrase
-            if len(current_phrase_words) >= 2:
+            # Check if we should break into a new phrase (need at least 4 words minimum)
+            if len(current_phrase_words) >= 4:
                 # Try to split into 2 lines, ensuring each line doesn't exceed max width or word count
-                best_split = None
-                best_split_point = None
+                valid_splits = []
                 
                 # Try different split points (from 1 to len-1)
                 for split_point in range(1, len(current_phrase_words)):
@@ -322,31 +327,54 @@ class VideoGenerator:
                         calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
                         calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
                         
-                        # Found a valid split - prefer balanced ones
-                        best_split = (line1_words, line2_words)
-                        best_split_point = split_point
+                        # Strongly avoid single-word lines
+                        if len(line1_words) == 1 or len(line2_words) == 1:
+                            # Only allow if we have many words and must break
+                            if len(current_phrase_words) < 12:
+                                continue
+                        
+                        # Calculate balance score (prefer splits closer to 50/50)
+                        balance_score = abs(len(line1_words) - len(line2_words))
+                        valid_splits.append({
+                            'split': (line1_words, line2_words),
+                            'point': split_point,
+                            'balance_score': balance_score
+                        })
+                
+                # Choose the most balanced valid split
+                best_split = None
+                if valid_splits:
+                    # Sort by balance (lower score = more balanced)
+                    valid_splits.sort(key=lambda x: x['balance_score'])
+                    best_split = valid_splits[0]['split']
                 
                 # Decide when to commit the phrase
                 should_commit = False
                 
                 if best_split:
-                    # We have a valid split - commit if:
-                    # 1. We have enough words for a good phrase (6+)
-                    # 2. OR we're at risk of exceeding limits on next word
-                    if len(current_phrase_words) >= 6:
+                    line1_words, line2_words = best_split
+                    is_balanced = abs(len(line1_words) - len(line2_words)) <= 2
+                    
+                    # Commit if we have a good phrase
+                    if len(current_phrase_words) >= 14:
+                        # Getting long, commit now
                         should_commit = True
-                    elif len(current_phrase_words) >= MAX_WORDS_PER_CAPTION_LINE:
-                        # One line is at max, commit now
+                    elif len(current_phrase_words) >= 10 and is_balanced:
+                        # Good balanced phrase
+                        should_commit = True
+                    elif len(current_phrase_words) >= MAX_WORDS_PER_CAPTION_LINE * 1.8:
+                        # Risk exceeding line limits
                         should_commit = True
                 else:
-                    # No valid split found - we MUST break now to respect constraints
-                    should_commit = True
-                    # Find best split even if it violates constraints (emergency break)
-                    mid = len(current_phrase_words) // 2
-                    best_split = (current_phrase_words[:mid], current_phrase_words[mid:])
-                    logger.warning(f"⚠️ Emergency break: No valid split found for {len(current_phrase_words)} words")
+                    # No valid split found - only commit if we really must
+                    if len(current_phrase_words) >= MAX_WORDS_PER_CAPTION_LINE * 1.5:
+                        should_commit = True
+                        # Emergency split
+                        mid = len(current_phrase_words) // 2
+                        best_split = (current_phrase_words[:mid], current_phrase_words[mid:])
+                        logger.warning(f"⚠️ Emergency break: No valid split found for {len(current_phrase_words)} words")
                 
-                if should_commit:
+                if should_commit and best_split:
                     line1_words, line2_words = best_split
                     phrases.append({
                         'line1': line1_words,
@@ -368,9 +396,27 @@ class VideoGenerator:
                     'end': current_phrase_words[-1]['end'],
                     'all_words': current_phrase_words
                 })
+            elif len(current_phrase_words) == 2:
+                # Two words - put them on separate lines (simple case)
+                phrases.append({
+                    'line1': [current_phrase_words[0]],
+                    'line2': [current_phrase_words[1]],
+                    'start': current_phrase_words[0]['start'],
+                    'end': current_phrase_words[-1]['end'],
+                    'all_words': current_phrase_words
+                })
+            elif len(current_phrase_words) == 3:
+                # Three words - 2 on first line, 1 on second
+                phrases.append({
+                    'line1': current_phrase_words[:2],
+                    'line2': [current_phrase_words[2]],
+                    'start': current_phrase_words[0]['start'],
+                    'end': current_phrase_words[-1]['end'],
+                    'all_words': current_phrase_words
+                })
             else:
-                # Multiple words - try to split respecting constraints
-                best_split = None
+                # 4+ words - try to split respecting constraints, prefer balance
+                valid_splits = []
                 for split_point in range(1, len(current_phrase_words)):
                     line1_words = current_phrase_words[:split_point]
                     line2_words = current_phrase_words[split_point:]
@@ -379,16 +425,28 @@ class VideoGenerator:
                         len(line2_words) <= MAX_WORDS_PER_CAPTION_LINE and
                         calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
                         calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
-                        best_split = (line1_words, line2_words)
-                        break
+                        
+                        balance_score = abs(len(line1_words) - len(line2_words))
+                        valid_splits.append({
+                            'split': (line1_words, line2_words),
+                            'balance_score': balance_score
+                        })
                 
-                if best_split:
-                    line1_words, line2_words = best_split
+                if valid_splits:
+                    # Sort by balance and take the most balanced
+                    valid_splits.sort(key=lambda x: x['balance_score'])
+                    line1_words, line2_words = valid_splits[0]['split']
                 else:
-                    # Emergency: just split in middle
-                    mid = len(current_phrase_words) // 2
-                    line1_words = current_phrase_words[:mid] if mid > 0 else current_phrase_words
-                    line2_words = current_phrase_words[mid:] if mid < len(current_phrase_words) else []
+                    # Emergency: split in middle or put all on one line if short enough
+                    if len(current_phrase_words) <= MAX_WORDS_PER_CAPTION_LINE:
+                        # Put all on one line
+                        line1_words = current_phrase_words
+                        line2_words = []
+                    else:
+                        # Must split - use middle
+                        mid = len(current_phrase_words) // 2
+                        line1_words = current_phrase_words[:mid] if mid > 0 else current_phrase_words
+                        line2_words = current_phrase_words[mid:] if mid < len(current_phrase_words) else []
                     logger.warning(f"⚠️ Emergency split for remaining {len(current_phrase_words)} words")
                 
                 phrases.append({
@@ -731,6 +789,23 @@ class VideoGenerator:
         video_path = os.path.join(story_dir, "story_video.mp4")
         clips = []
         
+        # CRITICAL: Validate all scenes have valid images before proceeding
+        logger.info("🔍 Validating images before video generation...")
+        missing_or_failed = []
+        for scene in storyboard_project['storyboards']:
+            image_url = scene.get('image')
+            scene_number = scene.get('scene_number', 'unknown')
+            
+            if not image_url:
+                missing_or_failed.append(f"Scene {scene_number} (no image URL)")
+        
+        if missing_or_failed:
+            error_msg = f"Cannot generate video: {len(missing_or_failed)} scene(s) missing images: {', '.join(missing_or_failed)}"
+            logger.error(f"❌ FATAL: {error_msg}")
+            raise ValueError(error_msg)
+        
+        logger.info("✅ All scenes have valid image URLs")
+        
         # Timing profiling
         timings = {}
         start_total = time.time()
@@ -831,9 +906,26 @@ class VideoGenerator:
                     continue
                 audio_clip = AudioFileClip(audio_file)
                 
+                # Check if this scene mentions PocketRAG - if so, force static image
+                description = scene.get('description', '')
+                subtitles = scene.get('subtitles', '')
+                is_pocketrag_scene = self.has_pocketrag_mention(description) or self.has_pocketrag_mention(subtitles)
+                
+                if is_pocketrag_scene:
+                    logger.info(f"🎯 Scene {scene['scene_number']} DETECTED as PocketRAG scene")
+                    logger.info(f"  Description: '{description[:100]}...'")
+                    logger.info(f"  Subtitles: '{subtitles[:100]}...'")
+                    logger.info(f"  Image URL: {scene.get('image', 'NONE')}")
+                    logger.info(f"  Video Clip URL: {scene.get('video_clip_url', 'NONE')}")
+                
                 # Check if this scene has a video clip (animated) or just static image
+                # Override video_clip_url for PocketRAG scenes to force static image usage
                 video_clip_url = scene.get('video_clip_url')
-                logger.debug(f"Scene {scene['scene_number']} video_clip_url: {video_clip_url}")
+                if is_pocketrag_scene and video_clip_url:
+                    logger.info(f"🎯 Scene {scene['scene_number']} is PocketRAG - OVERRIDING video clip, using static image instead")
+                    video_clip_url = None
+                
+                logger.debug(f"Scene {scene['scene_number']} video_clip_url: {video_clip_url}, is_pocketrag: {is_pocketrag_scene}")
                 
                 if video_clip_url:
                     # Use animated video clip
@@ -882,7 +974,9 @@ class VideoGenerator:
                         
                         # Load the video clip
                         temp_clip = VideoFileClip(downloaded_video)
-                        logger.info(f"Scene {scene['scene_number']} video clip dimensions: {temp_clip.w}x{temp_clip.h}, duration: {temp_clip.duration}s")
+                        video_duration = temp_clip.duration
+                        audio_duration = audio_clip.duration
+                        logger.info(f"Scene {scene['scene_number']} video clip - original: {temp_clip.w}x{temp_clip.h}, video duration: {video_duration:.2f}s, audio duration: {audio_duration:.2f}s")
                         
                         # Calculate scaling to fill frame (crop excess)
                         clip_aspect = temp_clip.w / temp_clip.h
@@ -892,21 +986,37 @@ class VideoGenerator:
                             # Video is wider - scale by height and crop width
                             new_width = int(temp_clip.w * (video_height / temp_clip.h))
                             logger.info(f"Scene {scene['scene_number']}: Scaling by height. New dimensions before crop: {new_width}x{video_height}")
-                            video_clip = (temp_clip
+                            scaled_clip = (temp_clip
                                          .resize(height=video_height)
-                                         .crop(x_center=new_width/2, width=video_width, height=video_height)
-                                         .set_duration(audio_clip.duration))
+                                         .crop(x_center=new_width/2, width=video_width, height=video_height))
                         else:
                             # Video is taller - scale by width and crop height  
                             new_height = int(temp_clip.h * (video_width / temp_clip.w))
                             logger.info(f"Scene {scene['scene_number']}: Scaling by width. New dimensions before crop: {video_width}x{new_height}")
-                            video_clip = (temp_clip
+                            scaled_clip = (temp_clip
                                          .resize(width=video_width)
-                                         .crop(y_center=new_height/2, width=video_width, height=video_height)
-                                         .set_duration(audio_clip.duration))
+                                         .crop(y_center=new_height/2, width=video_width, height=video_height))
+                        
+                        # Handle duration mismatch between video and audio
+                        if abs(video_duration - audio_duration) > 0.5:
+                            # Significant difference - need to adjust
+                            if video_duration < audio_duration:
+                                # Video is shorter - loop it to match audio duration
+                                logger.info(f"Scene {scene['scene_number']}: Video shorter than audio, looping to match ({video_duration:.2f}s -> {audio_duration:.2f}s)")
+                                from moviepy.editor import concatenate_videoclips
+                                loops_needed = int(audio_duration / video_duration) + 1
+                                video_clip = concatenate_videoclips([scaled_clip] * loops_needed).set_duration(audio_duration)
+                            else:
+                                # Video is longer - trim to audio duration
+                                logger.info(f"Scene {scene['scene_number']}: Video longer than audio, trimming ({video_duration:.2f}s -> {audio_duration:.2f}s)")
+                                video_clip = scaled_clip.set_duration(audio_duration)
+                        else:
+                            # Close enough - just set duration to match exactly
+                            video_clip = scaled_clip.set_duration(audio_duration)
                         
                         # Replace audio with generated speech
                         video_clip = video_clip.set_audio(audio_clip)
+                        logger.info(f"Scene {scene['scene_number']}: Final clip duration set to {audio_duration:.2f}s")
                         
                     else:
                         # Use static image with zoom effect
@@ -918,7 +1028,8 @@ class VideoGenerator:
                             logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
                             continue
                         
-                        logger.info(f"Scene {scene['scene_number']} image dimensions: {temp_clip.w}x{temp_clip.h}")
+                        audio_duration = audio_clip.duration
+                        logger.info(f"Scene {scene['scene_number']} static image - dimensions: {temp_clip.w}x{temp_clip.h}, audio duration: {audio_duration:.2f}s")
                         
                         # Calculate scaling to fill frame (crop excess)
                         clip_aspect = temp_clip.w / temp_clip.h
@@ -931,7 +1042,7 @@ class VideoGenerator:
                             image_clip = (temp_clip
                                          .resize(height=video_height)
                                          .crop(x_center=new_width/2, width=video_width, height=video_height)
-                                         .set_duration(audio_clip.duration))
+                                         .set_duration(audio_duration))
                         else:
                             # Image is taller - scale by width and crop height  
                             new_height = int(temp_clip.h * (video_width / temp_clip.w))
@@ -939,10 +1050,11 @@ class VideoGenerator:
                             image_clip = (temp_clip
                                          .resize(width=video_width)
                                          .crop(y_center=new_height/2, width=video_width, height=video_height)
-                                         .set_duration(audio_clip.duration))
+                                         .set_duration(audio_duration))
                         
                         # Combine image and audio
                         video_clip = image_clip.set_audio(audio_clip)
+                        logger.info(f"Scene {scene['scene_number']}: Final clip duration set to {audio_duration:.2f}s")
                     
                     # Add audio fade in/out to prevent artifacts between clips
                     video_clip = video_clip.audio_fadein(0.1).audio_fadeout(0.1)
@@ -961,13 +1073,18 @@ class VideoGenerator:
                         clips.append(video_clip)
                         
                 except Exception as e:
-                    logger.error(f"Error processing image for scene {scene['scene_number']}: {str(e)}")
+                    logger.error(f"❌ Error processing scene {scene['scene_number']}: {type(e).__name__}: {str(e)}")
+                    logger.error(f"  Scene details - has video_clip_url: {bool(video_clip_url)}, is_pocketrag: {is_pocketrag_scene}")
+                    logger.error(f"  Stack trace:", exc_info=True)
                     continue
 
             timings['clip_creation'] = time.time() - start_clips
             
             if not clips:
-                logger.error("No valid clips generated")
+                logger.error("❌ FATAL: No valid clips generated - cannot create video")
+                logger.error(f"  Total scenes in storyboard: {len(storyboard_project['storyboards'])}")
+                audio_count = sum(1 for s in storyboard_project['storyboards'] if os.path.exists(os.path.join(audio_dir, f"scene_{s['scene_number']}.mp3")))
+                logger.error(f"  Audio files found: {audio_count}")
                 return None
             
             logger.info(f"Total clips generated: {len(clips)}")
@@ -977,10 +1094,18 @@ class VideoGenerator:
             start_closing = time.time()
             if progress_callback:
                 await progress_callback(0.60, "Creating closing screen...")
-            closing_screen = self.create_closing_screen(duration=4)
-            if closing_screen:
-                clips.append(closing_screen)
-                logger.info("Added closing screen with logos to video")
+            
+            try:
+                closing_screen = self.create_closing_screen(duration=4)
+                if closing_screen:
+                    clips.append(closing_screen)
+                    logger.info("Added closing screen with logos to video")
+                else:
+                    logger.warning("⚠️ Failed to create closing screen, continuing without it")
+            except Exception as e:
+                logger.error(f"⚠️ Error creating closing screen: {type(e).__name__}: {str(e)}")
+                logger.error("Continuing without closing screen")
+            
             timings['closing_screen'] = time.time() - start_closing
             
             # Add audio fadeout to last scene clip to prevent audio artifacts
@@ -991,8 +1116,15 @@ class VideoGenerator:
                 await progress_callback(0.70, "Combining clips...")
             
             start_concat = time.time()
-            final_clip = concatenate_videoclips(clips, method="compose")
-            timings['concatenation'] = time.time() - start_concat
+            try:
+                logger.info(f"Concatenating {len(clips)} clips...")
+                final_clip = concatenate_videoclips(clips, method="compose")
+                timings['concatenation'] = time.time() - start_concat
+                logger.info(f"✅ Clips concatenated successfully in {timings['concatenation']:.2f}s")
+            except Exception as e:
+                logger.error(f"❌ FATAL: Failed to concatenate clips: {type(e).__name__}: {str(e)}")
+                logger.error(f"  Stack trace:", exc_info=True)
+                raise
             
             # Use a separate thread for video writing to avoid blocking the event loop
             # Optimized settings: faster preset, lower fps for speed
@@ -1000,21 +1132,35 @@ class VideoGenerator:
             if progress_callback:
                 await progress_callback(0.80, "Encoding video...")
             
-            await asyncio.to_thread(
-                final_clip.write_videofile,
-                video_path,
-                fps=20,  # Reduced from 24 for faster encoding
-                codec='libx264',
-                audio_codec='aac',
-                audio_bitrate='192k',
-                temp_audiofile='temp-audio.m4a',
-                remove_temp=True,
-                preset='faster',  # Changed from 'medium' for ~2x speed boost
-                threads=4,
-                logger=None  # Suppress MoviePy's verbose output
-            )
-            timings['video_encoding'] = time.time() - start_encoding
-            logger.info(f"Video encoding completed in {timings['video_encoding']:.2f}s")
+            try:
+                logger.info(f"Starting video encoding to: {video_path}")
+                await asyncio.to_thread(
+                    final_clip.write_videofile,
+                    video_path,
+                    fps=20,  # Reduced from 24 for faster encoding
+                    codec='libx264',
+                    audio_codec='aac',
+                    audio_bitrate='192k',
+                    temp_audiofile='temp-audio.m4a',
+                    remove_temp=True,
+                    preset='faster',  # Changed from 'medium' for ~2x speed boost
+                    threads=4,
+                    logger=None  # Suppress MoviePy's verbose output
+                )
+                timings['video_encoding'] = time.time() - start_encoding
+                logger.info(f"✅ Video encoding completed in {timings['video_encoding']:.2f}s")
+                
+                # Verify the video file was created
+                if not os.path.exists(video_path):
+                    raise FileNotFoundError(f"Video file was not created at: {video_path}")
+                
+                file_size = os.path.getsize(video_path) / (1024 * 1024)
+                logger.info(f"✅ Video file created: {file_size:.2f} MB")
+                
+            except Exception as e:
+                logger.error(f"❌ FATAL: Video encoding failed: {type(e).__name__}: {str(e)}")
+                logger.error(f"  Stack trace:", exc_info=True)
+                raise
 
             start_captions = time.time()
             if progress_callback:
@@ -1052,5 +1198,11 @@ class VideoGenerator:
 
             return subtitle_video_path
         except Exception as e:
-            logger.error(f"Error in generate_video: {str(e)}")
+            logger.error(f"❌ CRITICAL ERROR in generate_video: {type(e).__name__}: {str(e)}")
+            logger.error(f"Error details:", exc_info=True)
+            logger.error(f"Current timing breakdown so far:")
+            for key, value in timings.items():
+                logger.error(f"  {key}: {value:.2f}s")
+            logger.error(f"Number of clips created: {len(clips)}")
+            logger.error(f"Number of subtitle segments: {len(subtitle_segments)}")
             return None

@@ -9,6 +9,7 @@ import fal_client
 from app.models.video_task import VideoTask  # Make sure this import is at the top of the file
 from dotenv import load_dotenv
 from runware import Runware, IImageInference
+from runware.types import IInputs
 
 
 # just for loading API keys
@@ -56,11 +57,12 @@ async def replicate_flux_api(task_id: str, prompt: str, max_retries: int = 3) ->
 
 
 async def runware_pocketrag_image_api(task_id: str, prompt: str, max_retries: int = 3) -> Optional[dict]:
-    """Generate image for PocketRAG scenes using Flux.2 [dev] model
+    """Generate image for PocketRAG scenes using Flux.2 [dev] model with reference image
     Returns dict with format: {"url": image_url, "cost": cost}
     """
     
     POCKETRAG_MODEL = "runware:400@1"  # Flux.2 [dev]
+    POCKETRAG_REFERENCE_IMAGE = "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG"
     
     for attempt in range(max_retries):
         runware = None
@@ -70,9 +72,26 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, max_retries: in
             await runware.connect()
             
             logger.info(f"📱 Generating PocketRAG image with Flux.2 [dev] model for task {task_id}...")
+            logger.info(f"📱 Using reference image: {POCKETRAG_REFERENCE_IMAGE}")
             
-            # Create request with Flux.2 [dev] model
-            # Note: The prompt already includes instructions to show iPhone with PocketRAG screen
+            # Validate and truncate prompt if needed (Runware limit: 2-3000 chars)
+            if not isinstance(prompt, str):
+                logger.error(f"❌ Prompt is not a string: {type(prompt)}")
+                return None
+            
+            if len(prompt) > 3000:
+                logger.warning(f"⚠️ Prompt too long ({len(prompt)} chars), truncating to 3000")
+                prompt = prompt[:3000]
+            elif len(prompt) < 2:
+                logger.error(f"❌ Prompt too short ({len(prompt)} chars), minimum is 2")
+                return None
+            
+            logger.info(f"📝 Prompt length: {len(prompt)} characters")
+            
+            # Create request with Flux.2 [dev] model and reference image
+            # Using IInputs to properly structure the referenceImages parameter
+            inputs = IInputs(referenceImages=[POCKETRAG_REFERENCE_IMAGE])
+            
             request_image = IImageInference(
                 positivePrompt=prompt,
                 model=POCKETRAG_MODEL,
@@ -80,7 +99,12 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, max_retries: in
                 height=1024,
                 numberResults=1,
                 steps=28,
-                outputFormat="JPG"
+                outputFormat="JPG",
+                CFGScale=3.5,
+                scheduler="FlowMatchEulerDiscreteScheduler",
+                includeCost=True,
+                inputs=inputs,
+                outputType=["URL"]
             )
             
             images = await runware.imageInference(requestImage=request_image)

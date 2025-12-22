@@ -17,8 +17,6 @@ import requests
 class ImageGenerator:
     def __init__(self, image_generator_func: Callable[[str], Optional[str]] = None):
         self.image_generator_func = image_generator_func
-        self.assets_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets")
-        self.prscreen_path = os.path.join(self.assets_path, "prscreen.png")
     
     def has_pocketrag_mention(self, text: str) -> bool:
         """Check if text mentions PocketRAG in any form"""
@@ -155,7 +153,7 @@ class ImageGenerator:
         
         # Check if using Runware for parallel batch generation
         if settings.use_runware_flux:
-            logger.info(f"🚀 Using Runware PARALLEL batch API for {total_images} images")
+            logger.info(f"Using Runware PARALLEL batch API for {total_images} images")
             
             # Separate PocketRAG scenes from regular scenes
             pocketrag_scenes = []
@@ -166,14 +164,28 @@ class ImageGenerator:
                 enhanced_prompt = self.prepare_prompt(storyboard, characters, art_style, tweak_prompt)
                 enhanced_prompts.append(enhanced_prompt)
                 
-                # Check if this scene mentions PocketRAG in description or subtitles
+                # Check if this scene mentions PocketRAG in description, subtitles, OR project title
                 description = storyboard.get('description', '')
                 subtitles = storyboard.get('subtitles', '')
-                if self.has_pocketrag_mention(description) or self.has_pocketrag_mention(subtitles):
+                project_title = storyboard_project.get('project_info', {}).get('title', '')
+                
+                logger.info(f"📋 Scene {i+1} - Checking for PocketRAG...")
+                logger.info(f"  Title: '{project_title}'")
+                logger.info(f"  Description: '{description[:100]}'")
+                logger.info(f"  Subtitles: '{subtitles[:100]}'")
+                
+                # Check title, description, AND subtitles for PocketRAG
+                is_pocketrag = (self.has_pocketrag_mention(project_title) or 
+                               self.has_pocketrag_mention(description) or 
+                               self.has_pocketrag_mention(subtitles))
+                
+                if is_pocketrag:
                     pocketrag_scenes.append((i, enhanced_prompt))
-                    logger.info(f"📱 Scene {i+1} identified as PocketRAG scene")
+                    logger.info(f"✅ POCKETRAG DETECTED: Scene {i+1} will use Flux.2 [dev] with reference image")
+                    logger.info(f"  Enhanced prompt: '{enhanced_prompt[:150]}'")
                 else:
                     regular_scenes.append((i, enhanced_prompt))
+                    logger.info(f"ℹ️  Regular scene: Scene {i+1} will use standard generation")
                 
                 logger.debug(f"Prepared prompt for scene {storyboard.get('scene_number')}: {enhanced_prompt[:100]}...")
             
@@ -181,15 +193,23 @@ class ImageGenerator:
             regular_prompts = [prompt for _, prompt in regular_scenes]
             regular_image_results = []
             if regular_prompts:
-                logger.info(f"📸 Generating {len(regular_prompts)} regular images in parallel...")
+                logger.info(f"Generating {len(regular_prompts)} REGULAR images in parallel batch...")
                 regular_image_results = await runware_flux_batch_api(task_id, regular_prompts)
             
             # Generate PocketRAG images individually with special model
             pocketrag_image_results = []
             if pocketrag_scenes:
-                logger.info(f"📱 Generating {len(pocketrag_scenes)} PocketRAG images with Flux.2 [dev]...")
-                for scene_idx, prompt in pocketrag_scenes:
+                logger.info(f"📱 Generating {len(pocketrag_scenes)} POCKETRAG images with Flux.2 [dev] and reference image...")
+                for idx, (scene_idx, prompt) in enumerate(pocketrag_scenes):
+                    logger.info(f"📱 PocketRAG image {idx+1}/{len(pocketrag_scenes)}: Calling API for scene {scene_idx+1}")
                     result = await runware_pocketrag_image_api(task_id, prompt)
+                    
+                    if result and isinstance(result, dict):
+                        image_url = result.get('url')
+                        logger.info(f"✅ PocketRAG scene {scene_idx+1} SUCCESS: {image_url}")
+                    else:
+                        logger.error(f"❌ PocketRAG scene {scene_idx+1} FAILED: result={result}")
+                    
                     pocketrag_image_results.append(result)
             
             # Combine results in correct order
@@ -199,11 +219,26 @@ class ImageGenerator:
             for i, (scene_idx, _) in enumerate(regular_scenes):
                 if i < len(regular_image_results):
                     image_results[scene_idx] = regular_image_results[i]
+                    logger.debug(f"Placed regular image at index {scene_idx}")
             
             # Place PocketRAG images
             for i, (scene_idx, _) in enumerate(pocketrag_scenes):
                 if i < len(pocketrag_image_results):
                     image_results[scene_idx] = pocketrag_image_results[i]
+                    if pocketrag_image_results[i]:
+                        logger.info(f"📱 Placed PocketRAG image at scene index {scene_idx}: {pocketrag_image_results[i].get('url') if isinstance(pocketrag_image_results[i], dict) else 'INVALID'}")
+                    else:
+                        logger.error(f"❌ PocketRAG image at scene {scene_idx} is None!")
+            
+            # Log final image_results status
+            logger.info(f"📊 Final image_results: {sum(1 for r in image_results if r)} out of {total_images} images")
+            for idx, result in enumerate(image_results):
+                if result is None:
+                    logger.warning(f"⚠️ Scene {idx+1}: NO IMAGE (None)")
+                elif isinstance(result, dict) and result.get('url'):
+                    logger.info(f"✅ Scene {idx+1}: HAS IMAGE - {result.get('url')[:80]}...")
+                else:
+                    logger.error(f"❌ Scene {idx+1}: INVALID RESULT - {result}")
             
             # Process results and update progress
             for i, (image_result, enhanced_prompt) in enumerate(zip(image_results, enhanced_prompts)):
@@ -217,12 +252,12 @@ class ImageGenerator:
                     storyboard_project['storyboards'][i]['error_message'] = None
                     
                     if image_cost is not None:
-                        logger.info(f"✅ Image {i+1} generated successfully: {image_url} (cost: ${image_cost:.6f})")
+                        logger.info(f"✅ Scene {i+1} image saved to storyboard: {image_url} (cost: ${image_cost:.6f})")
                     else:
-                        logger.info(f"✅ Image {i+1} generated successfully: {image_url}")
+                        logger.info(f"✅ Scene {i+1} image saved to storyboard: {image_url}")
                 else:
                     error_message = "Image generation failed: returned None"
-                    logger.error(f"❌ Error generating image {i+1}")
+                    logger.error(f"❌ Scene {i+1} - Image generation FAILED")
                     storyboard_project['storyboards'][i]['image'] = None
                     storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
                     storyboard_project['storyboards'][i]['image_generation_cost'] = None
