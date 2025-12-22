@@ -1003,7 +1003,6 @@ class VideoGenerator:
                             if video_duration < audio_duration:
                                 # Video is shorter - loop it to match audio duration
                                 logger.info(f"Scene {scene['scene_number']}: Video shorter than audio, looping to match ({video_duration:.2f}s -> {audio_duration:.2f}s)")
-                                from moviepy.editor import concatenate_videoclips
                                 loops_needed = int(audio_duration / video_duration) + 1
                                 video_clip = concatenate_videoclips([scaled_clip] * loops_needed).set_duration(audio_duration)
                             else:

@@ -37,14 +37,14 @@ class ImageGenerator:
         camera_info = f"Camera: {storyboard['camera']['angle']}, {storyboard['camera']['composition_type']}, {storyboard['camera']['shot_size']}"
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
-        enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
-        
-        # Check if PocketRAG is mentioned and add special instructions
+        # Check if PocketRAG is mentioned - if so, REPLACE the prompt entirely
         if self.has_pocketrag_mention(prompt):
-            # Very explicit instruction that should override the scene description
-            pocketrag_instruction = "IMPORTANT: Show a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen must show the PocketRAG mobile app interface with clean modern UI elements, text, and controls visible on the screen. The phone should be the main focus of the image"
-            enhanced_prompt = f"{pocketrag_instruction} | {enhanced_prompt}"
-            logger.info(f"🎯 PocketRAG detected - adding iPhone display instruction")
+            # Replace entire description with PocketRAG-specific prompt
+            pocketrag_instruction = "An over-the-shoulder shot of a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+            enhanced_prompt = f"{pocketrag_instruction} | {style} | {camera_info} | {lighting_info}"
+            logger.info(f"🎯 PocketRAG detected - REPLACING prompt with iPhone-specific description")
+        else:
+            enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
         
         # Add tweak prompt if provided
         if tweak_prompt:
@@ -93,14 +93,14 @@ class ImageGenerator:
         camera_info = f"Camera: {storyboard['camera']['angle']}, {storyboard['camera']['composition_type']}, {storyboard['camera']['shot_size']}"
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
-        enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
-        
-        # Check if PocketRAG is mentioned and add special instructions
+        # Check if PocketRAG is mentioned - if so, REPLACE the prompt entirely
         if self.has_pocketrag_mention(prompt):
-            # Very explicit instruction that should override the scene description
-            pocketrag_instruction = "IMPORTANT: Show a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen must show the PocketRAG mobile app interface with clean modern UI elements, text, and controls visible on the screen. The phone should be the main focus of the image"
-            enhanced_prompt = f"{pocketrag_instruction} | {enhanced_prompt}"
-            logger.info(f"🎯 PocketRAG detected in scene - adding iPhone display instruction")
+            # Replace entire description with PocketRAG-specific prompt
+            pocketrag_instruction = "An over-the-shoulder shot of a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+            enhanced_prompt = f"{pocketrag_instruction} | {style} | {camera_info} | {lighting_info}"
+            logger.info(f"🎯 PocketRAG detected in scene - REPLACING with iPhone-specific prompt")
+        else:
+            enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
         
         # Add tweak prompt if provided
         if tweak_prompt:
