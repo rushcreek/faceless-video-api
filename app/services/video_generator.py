@@ -225,9 +225,12 @@ class VideoGenerator:
             logger.error(f"Error creating closing screen: {str(e)}")
             return None
 
-    async def add_captions(self, output_file, output_file_subtitle, caption_font='BebasNeue', custom_segments=None):
+    async def add_captions(self, output_file, output_file_subtitle, caption_font='BebasNeue', custom_segments=None, progress_callback=None):
         """Add phrase-based captions to video using MoviePy directly"""
         try:
+            if progress_callback:
+                await progress_callback(0.90, "Adding captions: Loading video...")
+            
             logger.info(f"🎬 Starting caption generation with MoviePy")
             logger.info(f"  Input video: {output_file}")
             logger.info(f"  Output video: {output_file_subtitle}")
@@ -245,7 +248,8 @@ class VideoGenerator:
                 output_file,
                 output_file_subtitle,
                 font_path,
-                custom_segments
+                custom_segments,
+                progress_callback
             )
             
             logger.info(f"✅ Caption generation completed successfully")
@@ -259,12 +263,47 @@ class VideoGenerator:
             logger.error(f"  Stack trace:", exc_info=True)
             raise
     
-    def _add_captions_moviepy_sync(self, video_file, output_file, font_path, segments):
-        """2-line captions: render each word individually - white when not active, yellow when speaking"""
+    def _add_captions_moviepy_sync(self, video_file, output_file, font_path, segments, progress_callback=None):
+        """
+        2-line captions with word-by-word yellow highlighting.
+        - Line 1: up to 4 words
+        - Line 2: up to 4 words  
+        - Total phrase width must be <= 90% of video width
+        - Minimum 4 words per phrase (unless end of segment)
+        - Shadow layer for readability
+        """
         from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
+        import os
+        import asyncio
         
-        logger.info("Loading video file...")
+        # Helper to call async progress_callback from sync context
+        def update_progress(progress, message):
+            if progress_callback:
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.run_coroutine_threadsafe(progress_callback(progress, message), loop)
+                except:
+                    pass  # Ignore errors in progress updates
+        
+        logger.info("Loading video file for captions...")
+        update_progress(0.91, "Adding captions: Loading video...")
         video = VideoFileClip(video_file)
+        
+        # Validate font exists - log detailed info
+        logger.info(f"🔤 Font path received: {font_path}")
+        if os.path.exists(font_path):
+            logger.info(f"✅ Font file exists: {font_path}")
+        else:
+            logger.error(f"❌ Font file NOT found: {font_path}")
+            # Try to find available fonts
+            font_dir = os.path.dirname(font_path)
+            if os.path.exists(font_dir):
+                available_fonts = [f for f in os.listdir(font_dir) if f.endswith('.ttf')]
+                logger.info(f"Available fonts in {font_dir}: {available_fonts}")
+                if available_fonts:
+                    font_path = os.path.join(font_dir, available_fonts[0])
+                    logger.info(f"Using fallback font: {font_path}")
         
         # Collect all words with timing from segments
         all_words = []
@@ -279,7 +318,7 @@ class VideoGenerator:
                         'end': word_data.get('end', 0)
                     })
         
-        logger.info(f"Processing {len(all_words)} words for 2-line captions with highlighting...")
+        logger.info(f"Processing {len(all_words)} words for captions")
         
         if not all_words:
             logger.warning("No words found in segments")
@@ -287,333 +326,251 @@ class VideoGenerator:
             video.close()
             return
         
-        # Constants for caption layout
-        MAX_WORDS_PER_CAPTION_LINE = 4 # Max words on each line of a 2-line caption
-        MAX_LINE_WIDTH = int(video.w * 0.90)  # 90% of video width
-        FONT_SIZE = 80
-        WORD_SPACING = 10
+        # Caption settings
+        MAX_LINE_WIDTH = int(video.w * 0.90)
+        FONT_SIZE = 80  # Fixed size for consistency
+        WORD_SPACING = 15
+        LINE_SPACING = int(FONT_SIZE * 1.15)
+        MAX_WORDS_PER_LINE = 4
+        MIN_WORDS_PER_PHRASE = 4
+        SHADOW_OFFSET = 3  # Shadow offset in pixels
         
-        # Helper function to calculate line width
-        def calculate_line_width(words_list):
-            total_width = 0
-            for w in words_list:
-                temp_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
-                total_width += temp_clip.w
-                temp_clip.close()
-            # Add spacing between words
-            total_width += WORD_SPACING * (len(words_list) - 1) if len(words_list) > 1 else 0
-            return total_width
+        logger.info(f"Caption settings: font_size={FONT_SIZE}, max_width={MAX_LINE_WIDTH}, video={video.w}x{video.h}")
         
-        # Group words into 2-line phrases with proper width constraints
-        phrases = []
-        current_phrase_words = []
-        
+        # Pre-calculate word widths using a test clip (without stroke for accurate measurement)
+        logger.info("Measuring word widths...")
+        word_widths = {}
         for word in all_words:
-            current_phrase_words.append(word)
+            if word['text'] not in word_widths:
+                try:
+                    test_clip = TextClip(
+                        word['text'],
+                        fontsize=FONT_SIZE,
+                        font=font_path,
+                        color='white'
+                    )
+                    word_widths[word['text']] = test_clip.w
+                    test_clip.close()
+                except Exception as e:
+                    logger.error(f"Error measuring word '{word['text']}': {e}")
+                    word_widths[word['text']] = FONT_SIZE * len(word['text']) * 0.6  # Estimate
+        
+        logger.info(f"Measured {len(word_widths)} unique words")
+        update_progress(0.92, "Adding captions: Analyzing word layout...")
+        
+        def get_line_width(words_list):
+            """Calculate total width of a line of words"""
+            if not words_list:
+                return 0
+            total = sum(word_widths.get(w['text'], 50) for w in words_list)
+            total += WORD_SPACING * (len(words_list) - 1)
+            return total
+        
+        def can_fit_line(words_list):
+            """Check if words fit in one line"""
+            return len(words_list) <= MAX_WORDS_PER_LINE and get_line_width(words_list) <= MAX_LINE_WIDTH
+        
+        # Group words into 2-line phrases
+        logger.info("Grouping words into phrases...")
+        phrases = []
+        i = 0
+        
+        while i < len(all_words):
+            phrase_words = []
             
-            # Check if we should break into a new phrase (need at least 4 words minimum)
-            if len(current_phrase_words) >= 4:
-                # Try to split into 2 lines, ensuring each line doesn't exceed max width or word count
-                valid_splits = []
+            while i < len(all_words) and len(phrase_words) < MAX_WORDS_PER_LINE * 2:
+                phrase_words.append(all_words[i])
+                i += 1
                 
-                # Try different split points (from 1 to len-1)
-                for split_point in range(1, len(current_phrase_words)):
-                    line1_words = current_phrase_words[:split_point]
-                    line2_words = current_phrase_words[split_point:]
-                    
-                    # Check constraints
-                    if (len(line1_words) <= MAX_WORDS_PER_CAPTION_LINE and 
-                        len(line2_words) <= MAX_WORDS_PER_CAPTION_LINE and
-                        calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
-                        calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
+                if len(phrase_words) >= MIN_WORDS_PER_PHRASE:
+                    found_valid_split = False
+                    for split_at in range(2, len(phrase_words) - 1):
+                        line1 = phrase_words[:split_at]
+                        line2 = phrase_words[split_at:]
                         
-                        # Strongly avoid single-word lines
-                        if len(line1_words) == 1 or len(line2_words) == 1:
-                            # Only allow if we have many words and must break
-                            if len(current_phrase_words) < 12:
-                                continue
-                        
-                        # Calculate balance score (prefer splits closer to 50/50)
-                        balance_score = abs(len(line1_words) - len(line2_words))
-                        valid_splits.append({
-                            'split': (line1_words, line2_words),
-                            'point': split_point,
-                            'balance_score': balance_score
-                        })
-                
-                # Choose the most balanced valid split
-                best_split = None
-                if valid_splits:
-                    # Sort by balance (lower score = more balanced)
-                    valid_splits.sort(key=lambda x: x['balance_score'])
-                    best_split = valid_splits[0]['split']
-                
-                # Decide when to commit the phrase
-                should_commit = False
-                
-                if best_split:
-                    line1_words, line2_words = best_split
-                    is_balanced = abs(len(line1_words) - len(line2_words)) <= 2
+                        if can_fit_line(line1) and can_fit_line(line2):
+                            if abs(len(line1) - len(line2)) <= 2:
+                                found_valid_split = True
+                                break
                     
-                    # Commit if we have a good phrase
-                    if len(current_phrase_words) >= 14:
-                        # Getting long, commit now
-                        should_commit = True
-                    elif len(current_phrase_words) >= 10 and is_balanced:
-                        # Good balanced phrase
-                        should_commit = True
-                    elif len(current_phrase_words) >= MAX_WORDS_PER_CAPTION_LINE * 1.8:
-                        # Risk exceeding line limits
-                        should_commit = True
-                else:
-                    # No valid split found - only commit if we really must
-                    if len(current_phrase_words) >= MAX_WORDS_PER_CAPTION_LINE * 1.5:
-                        should_commit = True
-                        # Emergency split
-                        mid = len(current_phrase_words) // 2
-                        best_split = (current_phrase_words[:mid], current_phrase_words[mid:])
-                        logger.warning(f"⚠️ Emergency break: No valid split found for {len(current_phrase_words)} words")
-                
-                if should_commit and best_split:
-                    line1_words, line2_words = best_split
-                    phrases.append({
-                        'line1': line1_words,
-                        'line2': line2_words,
-                        'start': current_phrase_words[0]['start'],
-                        'end': current_phrase_words[-1]['end'],
-                        'all_words': current_phrase_words
-                    })
-                    current_phrase_words = []
-        
-        # Handle remaining words
-        if current_phrase_words:
-            if len(current_phrase_words) == 1:
-                # Single word - put it on one line
-                phrases.append({
-                    'line1': current_phrase_words,
-                    'line2': [],
-                    'start': current_phrase_words[0]['start'],
-                    'end': current_phrase_words[-1]['end'],
-                    'all_words': current_phrase_words
-                })
-            elif len(current_phrase_words) == 2:
-                # Two words - put them on separate lines (simple case)
-                phrases.append({
-                    'line1': [current_phrase_words[0]],
-                    'line2': [current_phrase_words[1]],
-                    'start': current_phrase_words[0]['start'],
-                    'end': current_phrase_words[-1]['end'],
-                    'all_words': current_phrase_words
-                })
-            elif len(current_phrase_words) == 3:
-                # Three words - 2 on first line, 1 on second
-                phrases.append({
-                    'line1': current_phrase_words[:2],
-                    'line2': [current_phrase_words[2]],
-                    'start': current_phrase_words[0]['start'],
-                    'end': current_phrase_words[-1]['end'],
-                    'all_words': current_phrase_words
-                })
-            else:
-                # 4+ words - try to split respecting constraints, prefer balance
-                valid_splits = []
-                for split_point in range(1, len(current_phrase_words)):
-                    line1_words = current_phrase_words[:split_point]
-                    line2_words = current_phrase_words[split_point:]
+                    if found_valid_split and len(phrase_words) >= 6:
+                        break
                     
-                    if (len(line1_words) <= MAX_WORDS_PER_CAPTION_LINE and 
-                        len(line2_words) <= MAX_WORDS_PER_CAPTION_LINE and
-                        calculate_line_width(line1_words) <= MAX_LINE_WIDTH and
-                        calculate_line_width(line2_words) <= MAX_LINE_WIDTH):
-                        
-                        balance_score = abs(len(line1_words) - len(line2_words))
-                        valid_splits.append({
-                            'split': (line1_words, line2_words),
-                            'balance_score': balance_score
-                        })
-                
-                if valid_splits:
-                    # Sort by balance and take the most balanced
-                    valid_splits.sort(key=lambda x: x['balance_score'])
-                    line1_words, line2_words = valid_splits[0]['split']
-                else:
-                    # Emergency: split in middle or put all on one line if short enough
-                    if len(current_phrase_words) <= MAX_WORDS_PER_CAPTION_LINE:
-                        # Put all on one line
-                        line1_words = current_phrase_words
-                        line2_words = []
-                    else:
-                        # Must split - use middle
-                        mid = len(current_phrase_words) // 2
-                        line1_words = current_phrase_words[:mid] if mid > 0 else current_phrase_words
-                        line2_words = current_phrase_words[mid:] if mid < len(current_phrase_words) else []
-                    logger.warning(f"⚠️ Emergency split for remaining {len(current_phrase_words)} words")
-                
-                phrases.append({
-                    'line1': line1_words,
-                    'line2': line2_words,
-                    'start': current_phrase_words[0]['start'],
-                    'end': current_phrase_words[-1]['end'],
-                    'all_words': current_phrase_words
-                })
-        
-        logger.info(f"Created {len(phrases)} two-line phrases (max {MAX_WORDS_PER_CAPTION_LINE} words per line, max width {MAX_LINE_WIDTH}px)")
-        
-        # Validate phrases and log any issues
-        for idx, phrase in enumerate(phrases):
-            line1_width = calculate_line_width(phrase['line1']) if phrase['line1'] else 0
-            line2_width = calculate_line_width(phrase['line2']) if phrase['line2'] else 0
+                    if len(phrase_words) >= MAX_WORDS_PER_LINE * 2:
+                        break
             
-            if line1_width > MAX_LINE_WIDTH:
-                logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max width: {line1_width}px > {MAX_LINE_WIDTH}px ({len(phrase['line1'])} words)")
-            if line2_width > MAX_LINE_WIDTH:
-                logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max width: {line2_width}px > {MAX_LINE_WIDTH}px ({len(phrase['line2'])} words)")
-            if len(phrase['line1']) > MAX_WORDS_PER_CAPTION_LINE:
-                logger.warning(f"⚠️ Phrase {idx+1} Line 1 exceeds max words: {len(phrase['line1'])} > {MAX_WORDS_PER_CAPTION_LINE}")
-            if len(phrase['line2']) > MAX_WORDS_PER_CAPTION_LINE:
-                logger.warning(f"⚠️ Phrase {idx+1} Line 2 exceeds max words: {len(phrase['line2'])} > {MAX_WORDS_PER_CAPTION_LINE}")
+            best_split = None
+            best_balance = 999
+            
+            for split_at in range(1, len(phrase_words)):
+                line1 = phrase_words[:split_at]
+                line2 = phrase_words[split_at:]
+                
+                if (len(line1) == 1 or len(line2) == 1) and len(phrase_words) > 2:
+                    continue
+                
+                if can_fit_line(line1) and can_fit_line(line2):
+                    balance = abs(len(line1) - len(line2))
+                    if balance < best_balance:
+                        best_balance = balance
+                        best_split = (line1, line2)
+            
+            if best_split is None:
+                if len(phrase_words) <= MAX_WORDS_PER_LINE:
+                    best_split = (phrase_words, [])
+                else:
+                    mid = len(phrase_words) // 2
+                    best_split = (phrase_words[:mid], phrase_words[mid:])
+            
+            line1, line2 = best_split
+            phrases.append({
+                'line1': line1,
+                'line2': line2,
+                'start': phrase_words[0]['start'],
+                'end': phrase_words[-1]['end'],
+                'all_words': phrase_words
+            })
         
-        # FIXED APPROACH: Persistent white base + yellow overlays for consistency
+        logger.info(f"Created {len(phrases)} caption phrases")
+        update_progress(0.93, "Adding captions: Rendering text clips...")
+        
+        # Create caption clips
         caption_clips = []
-        caption_y = int(video.h * 0.80)
-        line_spacing = 90
-        shadow_offset = 3  # Shadow offset in pixels
+        caption_y = int(video.h * 0.78)
+        
+        # Cache for TextClips
+        clip_cache = {}
+        
+        def get_text_clip(text, color):
+            """Get or create a TextClip with caching - NO stroke, shadow handled separately"""
+            key = f"{text}_{color}"
+            if key not in clip_cache:
+                clip_cache[key] = TextClip(
+                    text,
+                    fontsize=FONT_SIZE,
+                    font=font_path,
+                    color=color
+                )
+            return clip_cache[key]
+        
+        logger.info("Rendering caption clips...")
         
         for phrase_idx, phrase in enumerate(phrases):
-            line1_text = ' '.join([w['text'] for w in phrase['line1']])
-            line2_text = ' '.join([w['text'] for w in phrase['line2']])
+            if phrase_idx % 5 == 0:
+                logger.info(f"  Processing phrase {phrase_idx + 1}/{len(phrases)}")
             
-            # Step 0: Create shadow layers (black text offset slightly)
-            if line1_text:
-                line1_shadow_clips = []
-                x_offset = 0
-                for w in phrase['line1']:
-                    shadow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='black', font=font_path, method='label')
-                    positioned = shadow_clip.set_position((x_offset, 0))
-                    line1_shadow_clips.append(positioned)
-                    x_offset += shadow_clip.w + WORD_SPACING
+            phrase_start = phrase['start']
+            phrase_end = phrase['end']
+            phrase_duration = phrase_end - phrase_start
+            
+            # Calculate line positions
+            line1_width = get_line_width(phrase['line1'])
+            line2_width = get_line_width(phrase['line2']) if phrase['line2'] else 0
+            
+            line1_x = (video.w - line1_width) // 2
+            line2_x = (video.w - line2_width) // 2 if phrase['line2'] else 0
+            
+            # Build position arrays
+            line1_positions = []
+            x = 0
+            for w in phrase['line1']:
+                line1_positions.append(x)
+                x += word_widths.get(w['text'], 50) + WORD_SPACING
+            
+            line2_positions = []
+            x = 0
+            for w in phrase['line2']:
+                line2_positions.append(x)
+                x += word_widths.get(w['text'], 50) + WORD_SPACING
+            
+            # === LINE 1 ===
+            # Create shadow layer (black text offset)
+            for idx, word in enumerate(phrase['line1']):
+                word_x = line1_x + line1_positions[idx]
+                shadow_clip = get_text_clip(word['text'], 'black').copy()
+                shadow_clip = shadow_clip.set_position((word_x + SHADOW_OFFSET, caption_y + SHADOW_OFFSET))
+                shadow_clip = shadow_clip.set_start(phrase_start).set_duration(phrase_duration)
+                caption_clips.append(shadow_clip)
+            
+            # Create white base words
+            for idx, word in enumerate(phrase['line1']):
+                word_x = line1_x + line1_positions[idx]
+                white_clip = get_text_clip(word['text'], 'white').copy()
+                white_clip = white_clip.set_position((word_x, caption_y))
+                white_clip = white_clip.set_start(phrase_start).set_duration(phrase_duration)
+                caption_clips.append(white_clip)
+            
+            # Create yellow highlights
+            word_index = 0
+            for idx, word in enumerate(phrase['line1']):
+                if word_index < len(phrase['all_words']):
+                    timing = phrase['all_words'][word_index]
+                    word_x = line1_x + line1_positions[idx]
+                    yellow_clip = get_text_clip(word['text'], 'yellow').copy()
+                    yellow_clip = yellow_clip.set_position((word_x, caption_y))
+                    yellow_clip = yellow_clip.set_start(timing['start']).set_duration(timing['end'] - timing['start'])
+                    caption_clips.append(yellow_clip)
+                    word_index += 1
+            
+            # === LINE 2 ===
+            if phrase['line2']:
+                # Create shadow layer
+                for idx, word in enumerate(phrase['line2']):
+                    word_x = line2_x + line2_positions[idx]
+                    shadow_clip = get_text_clip(word['text'], 'black').copy()
+                    shadow_clip = shadow_clip.set_position((word_x + SHADOW_OFFSET, caption_y + LINE_SPACING + SHADOW_OFFSET))
+                    shadow_clip = shadow_clip.set_start(phrase_start).set_duration(phrase_duration)
+                    caption_clips.append(shadow_clip)
                 
-                line1_width = x_offset - WORD_SPACING
-                line1_shadow = CompositeVideoClip(line1_shadow_clips, size=(line1_width, 100))
-                line1_x = (video.w - line1_width) // 2
-                line1_shadow = line1_shadow.set_position((line1_x + shadow_offset, caption_y + shadow_offset))
-                line1_shadow = line1_shadow.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
-                caption_clips.append(line1_shadow)
-            
-            if line2_text:
-                line2_shadow_clips = []
-                x_offset = 0
-                for w in phrase['line2']:
-                    shadow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='black', font=font_path, method='label')
-                    positioned = shadow_clip.set_position((x_offset, 0))
-                    line2_shadow_clips.append(positioned)
-                    x_offset += shadow_clip.w + WORD_SPACING
+                # Create white base words
+                for idx, word in enumerate(phrase['line2']):
+                    word_x = line2_x + line2_positions[idx]
+                    white_clip = get_text_clip(word['text'], 'white').copy()
+                    white_clip = white_clip.set_position((word_x, caption_y + LINE_SPACING))
+                    white_clip = white_clip.set_start(phrase_start).set_duration(phrase_duration)
+                    caption_clips.append(white_clip)
                 
-                line2_width = x_offset - WORD_SPACING
-                line2_shadow = CompositeVideoClip(line2_shadow_clips, size=(line2_width, 100))
-                line2_x = (video.w - line2_width) // 2
-                line2_shadow = line2_shadow.set_position((line2_x + shadow_offset, caption_y + line_spacing + shadow_offset))
-                line2_shadow = line2_shadow.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
-                caption_clips.append(line2_shadow)
-            
-            # Step 1: Create white base layers that persist for entire phrase (prevents disappearing)
-            if line1_text:
-                # Build line 1 as composite to get consistent positioning
-                line1_word_clips = []
-                x_offset = 0
-                for w in phrase['line1']:
-                    word_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
-                    positioned = word_clip.set_position((x_offset, 0))
-                    line1_word_clips.append(positioned)
-                    x_offset += word_clip.w + WORD_SPACING
-                
-                line1_width = x_offset - WORD_SPACING
-                line1_base = CompositeVideoClip(line1_word_clips, size=(line1_width, 100))
-                line1_x = (video.w - line1_width) // 2
-                line1_base = line1_base.set_position((line1_x, caption_y))
-                line1_base = line1_base.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
-                caption_clips.append(line1_base)
-            
-            if line2_text:
-                # Build line 2 as composite with SAME positioning logic
-                line2_word_clips = []
-                x_offset = 0
-                for w in phrase['line2']:
-                    word_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
-                    positioned = word_clip.set_position((x_offset, 0))
-                    line2_word_clips.append(positioned)
-                    x_offset += word_clip.w + WORD_SPACING
-                
-                line2_width = x_offset - WORD_SPACING
-                line2_base = CompositeVideoClip(line2_word_clips, size=(line2_width, 100))
-                line2_x = (video.w - line2_width) // 2
-                line2_base = line2_base.set_position((line2_x, caption_y + line_spacing))
-                line2_base = line2_base.set_start(phrase['start']).set_duration(phrase['end'] - phrase['start'])
-                caption_clips.append(line2_base)
-            
-            # Step 2: Add yellow overlays for each word at its specific timing
-            for word_idx, current_word in enumerate(phrase['all_words']):
-                if word_idx < len(phrase['line1']):
-                    # Word is on line 1
-                    x_offset = 0
-                    for i, w in enumerate(phrase['line1']):
-                        if i == word_idx:
-                            # Create yellow overlay for this word
-                            yellow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='yellow', font=font_path, method='label')
-                            yellow_x = line1_x + x_offset
-                            yellow_clip = yellow_clip.set_position((yellow_x, caption_y))
-                            yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
-                            caption_clips.append(yellow_clip)
-                            break
-                        else:
-                            # Calculate offset to find position
-                            temp_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
-                            x_offset += temp_clip.w + WORD_SPACING
-                            temp_clip.close()
-                else:
-                    # Word is on line 2
-                    word_pos_in_line2 = word_idx - len(phrase['line1'])
-                    x_offset = 0
-                    for i, w in enumerate(phrase['line2']):
-                        if i == word_pos_in_line2:
-                            yellow_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='yellow', font=font_path, method='label')
-                            yellow_x = line2_x + x_offset
-                            yellow_clip = yellow_clip.set_position((yellow_x, caption_y + line_spacing))
-                            yellow_clip = yellow_clip.set_start(current_word['start']).set_duration(current_word['end'] - current_word['start'])
-                            caption_clips.append(yellow_clip)
-                            break
-                        else:
-                            temp_clip = TextClip(w['text'], fontsize=FONT_SIZE, color='white', font=font_path, method='label')
-                            x_offset += temp_clip.w + WORD_SPACING
-                            temp_clip.close()
+                # Create yellow highlights
+                for idx, word in enumerate(phrase['line2']):
+                    if word_index < len(phrase['all_words']):
+                        timing = phrase['all_words'][word_index]
+                        word_x = line2_x + line2_positions[idx]
+                        yellow_clip = get_text_clip(word['text'], 'yellow').copy()
+                        yellow_clip = yellow_clip.set_position((word_x, caption_y + LINE_SPACING))
+                        yellow_clip = yellow_clip.set_start(timing['start']).set_duration(timing['end'] - timing['start'])
+                        caption_clips.append(yellow_clip)
+                        word_index += 1
         
-        logger.info(f"Created {len(caption_clips)} caption elements (base + overlays), compositing...")
+        logger.info(f"Created {len(caption_clips)} caption elements")
+        logger.info("Compositing video with captions...")
+        update_progress(0.95, "Adding captions: Compositing layers...")
         
-        # Composite video with all captions
         final_video = CompositeVideoClip([video] + caption_clips)
         
-        logger.info("Writing final video with captions...")
+        logger.info("Encoding final video...")
+        update_progress(0.96, "Adding captions: Encoding final video...")
         final_video.write_videofile(
             output_file,
             codec='libx264',
             audio_codec='aac',
             fps=video.fps,
-            preset='medium',
+            preset='faster',
             threads=4,
-            logger=None  # Suppress MoviePy's verbose output
+            logger=None
         )
         
-        # Cleanup - close all clips to free resources
-        logger.info("Cleaning up clip resources...")
-        for clip in caption_clips:
+        # Cleanup
+        logger.info("Cleaning up resources...")
+        for clip in clip_cache.values():
             try:
                 clip.close()
             except:
                 pass
+        
         video.close()
         final_video.close()
         
-        logger.info("✅ MoviePy caption generation complete!")
+        logger.info("✅ Caption generation complete!")
     
     def _add_captions_sync(self, video_file, output_file, font_path, segments):
         """DEPRECATED - keeping for compatibility but not used"""
@@ -644,144 +601,6 @@ class VideoGenerator:
         except Exception as e:
             logger.error(f"Error adding captions with shortcap: {e}")
             raise
-
-    async def create_video_from_storyboard(self, storyboard_project, task_id: str):
-        all_words = []
-        for segment in segments:
-            words = segment.get('words', [])
-            for word_data in words:
-                word_text = word_data.get('word', '').strip()
-                if word_text:
-                    all_words.append({
-                        'text': word_text,
-                        'start': word_data.get('start', 0),
-                        'end': word_data.get('end', 0)
-                    })
-        
-        if not all_words:
-            logger.warning("No words found for captions")
-            return
-        
-        # Group words into 2-line phrases (roughly 8-12 words per phrase)
-        phrases = []
-        current_phrase = []
-        words_per_phrase = 10
-        
-        for i, word in enumerate(all_words):
-            current_phrase.append(word)
-            
-            # Create phrase when we have enough words or reach the end
-            if len(current_phrase) >= words_per_phrase or i == len(all_words) - 1:
-                if current_phrase:
-                    phrases.append({
-                        'words': current_phrase.copy(),
-                        'start': current_phrase[0]['start'],
-                        'end': current_phrase[-1]['end']
-                    })
-                    current_phrase = []
-        
-        # Create text clips for each phrase with word-by-word highlighting
-        text_clips = []
-        
-        for phrase in phrases:
-            phrase_words = phrase['words']
-            phrase_start = phrase['start']
-            phrase_end = phrase['end']
-            
-            # Split words into 2 lines (roughly equal)
-            mid_point = len(phrase_words) // 2
-            line1_words = phrase_words[:mid_point]
-            line2_words = phrase_words[mid_point:]
-            
-            # For each word timing, create the full 2-line caption with appropriate highlighting
-            for word_idx, current_word in enumerate(phrase_words):
-                word_start = current_word['start']
-                word_end = current_word['end']
-                word_duration = word_end - word_start
-                
-                # Build line 1 with individual word clips
-                line1_word_clips = []
-                line1_x_offset = 0
-                
-                for w in line1_words:
-                    is_current = (w == current_word)
-                    color = 'yellow' if is_current else 'white'
-                    text = w['text'].upper() if is_current else w['text']
-                    
-                    try:
-                        word_clip = TextClip(
-                            text,
-                            fontsize=70,
-                            color=color,
-                            font=font_path,
-                            stroke_color='black',
-                            stroke_width=2,
-                            method='label'
-                        ).set_start(word_start).set_duration(word_duration)
-                        
-                        line1_word_clips.append(word_clip)
-                    except Exception as e:
-                        logger.warning(f"Failed to create word clip for '{text}': {e}")
-                
-                # Build line 2 with individual word clips  
-                line2_word_clips = []
-                
-                for w in line2_words:
-                    is_current = (w == current_word)
-                    color = 'yellow' if is_current else 'white'
-                    text = w['text'].upper() if is_current else w['text']
-                    
-                    try:
-                        word_clip = TextClip(
-                            text,
-                            fontsize=70,
-                            color=color,
-                            font=font_path,
-                            stroke_color='black',
-                            stroke_width=2,
-                            method='label'
-                        ).set_start(word_start).set_duration(word_duration)
-                        
-                        line2_word_clips.append(word_clip)
-                    except Exception as e:
-                        logger.warning(f"Failed to create word clip for '{text}': {e}")
-                
-                # Position line 1 words horizontally
-                line1_total_width = sum(clip.size[0] + 15 for clip in line1_word_clips)  # 15px spacing
-                line1_start_x = (video.w - line1_total_width) / 2
-                
-                for clip in line1_word_clips:
-                    clip_positioned = clip.set_position((line1_start_x, video.h * 0.70))
-                    text_clips.append(clip_positioned)
-                    line1_start_x += clip.size[0] + 15
-                
-                # Position line 2 words horizontally
-                line2_total_width = sum(clip.size[0] + 15 for clip in line2_word_clips)
-                line2_start_x = (video.w - line2_total_width) / 2
-                
-                for clip in line2_word_clips:
-                    clip_positioned = clip.set_position((line2_start_x, video.h * 0.78))
-                    text_clips.append(clip_positioned)
-                    line2_start_x += clip.size[0] + 15
-        
-        logger.info(f"📝 Compositing {len(text_clips)} caption elements onto video...")
-        final_video = CompositeVideoClip([video] + text_clips)
-        
-        logger.info(f"📝 Writing output video...")
-        final_video.write_videofile(
-            output_file,
-            codec='libx264',
-            audio_codec='aac',
-            fps=video.fps,
-            preset='medium',
-            threads=4
-        )
-        
-        # Clean up
-        video.close()
-        final_video.close()
-        for clip in text_clips:
-            clip.close()
 
     async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None, task_id=None):
         audio_dir = os.path.join(story_dir, "audio")
@@ -1174,7 +993,7 @@ class VideoGenerator:
             logger.info(f"  Target subtitle video: {subtitle_video_path}")
             
             try:
-                await self.add_captions(video_path, subtitle_video_path, caption_font, custom_segments=subtitle_segments)
+                await self.add_captions(video_path, subtitle_video_path, caption_font, custom_segments=subtitle_segments, progress_callback=progress_callback)
                 timings['caption_generation'] = time.time() - start_captions
                 logger.info(f"✅ Caption generation completed in {timings['caption_generation']:.2f}s")
             except Exception as caption_error:
