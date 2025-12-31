@@ -12,6 +12,7 @@ from app.models.image import Image
 from app.services.runware_video_sdk import generate_video_from_image
 import asyncio
 import uuid as uuid_lib
+import math
 
 router = APIRouter()
 
@@ -238,8 +239,8 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         logger.warning(f"  ⚠️ Duration {duration}s too long, capping at 10s")
                         duration = 10
                     
-                    scene_duration = int(duration)
-                    logger.info(f"  ✅ Using duration: {scene_duration}s for Runware API")
+                    scene_duration = math.ceil(duration)
+                    logger.info(f"  ✅ Using duration: {scene_duration}s for Runware API (rounded up from {duration:.2f}s)")
                     
                     # For animated scenes, create a video generation prompt
                     # Use existing video_generation_request if available, otherwise create basic one
