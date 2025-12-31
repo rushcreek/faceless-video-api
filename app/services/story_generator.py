@@ -200,13 +200,13 @@ Return ONLY the JSON object, no other text."""
 
             First, create an opening scene:
             1. Scene Number: 1
-            2. Description: A vivid description (60-70 words) that sets up an engaging hook related to the story. 
+            2. Description: A vivid description (60-70 words) that sets up an engaging hook related to the story. Appeal to curiosity and draw the viewer in.
             3. Subtitles: An engaging question or statement that captures the essence of the story.
             4. Camera, Lighting, and Transition: As per the guidelines below.
 
             Then, for each subsequent scene, provide the following details:
             1. Scene Number: An integer starting from 1 and incrementing sequentially (1, 2, 3, etc.)
-            2. Description: A vivid description (60-70 words) focusing on key visual elements.
+            2. Description: A vivid description (60-70 words) focusing on key visual elements that are based in the central theme or action of the scene using important words or phrases to craft the visuals.
             3. Subtitles: Use EXACT quotes from the original story WITH ALL PUNCTUATION PRESERVED (periods, commas, question marks, exclamation points, etc.)
             4. Camera: Specify the angle, composition type, and shot size.
             5. Lighting: Describe the lighting type used.

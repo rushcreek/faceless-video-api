@@ -331,7 +331,7 @@ class VideoGenerator:
         FONT_SIZE = 80  # Fixed size for consistency
         WORD_SPACING = 15
         LINE_SPACING = int(FONT_SIZE * 1.15)
-        MAX_WORDS_PER_LINE = 4
+        MAX_WORDS_PER_LINE = 3
         MIN_WORDS_PER_PHRASE = 4
         SHADOW_OFFSET = 3  # Shadow offset in pixels
         
@@ -634,13 +634,10 @@ class VideoGenerator:
         current_time = 0.0
         
         try:
-            # Audio generation phase
+            # Audio generation, transcription, and caption phrase/timing
             start_audio = time.time()
             for scene in storyboard_project['storyboards']:
-                # Generate audio for the subtitle
                 audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
-                
-                # Check if audio already exists (from earlier processing step)
                 if os.path.exists(audio_file):
                     logger.info(f"♻️ Audio file already exists for scene {scene['scene_number']}, skipping generation")
                 else:
@@ -648,17 +645,10 @@ class VideoGenerator:
                     if not success:
                         logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
                         continue
-
-                # Create audio clip to get duration
                 audio_clip = AudioFileClip(audio_file)
                 duration = audio_clip.duration
-                
-                # Store duration in scene for later use
                 scene['audio_duration'] = duration
                 logger.info(f"Scene {scene['scene_number']} audio duration: {duration:.2f}s")
-                
-                # Update database with audio duration if task_id is provided
-                # (only if not already set - avoid unnecessary DB writes)
                 if task_id and scene.get('audio_duration') != duration:
                     await Image.update_by_task_and_scene(
                         task_id=task_id,
@@ -666,21 +656,15 @@ class VideoGenerator:
                         audio_duration=duration
                     )
                     logger.info(f"✅ Updated database: scene {scene['scene_number']} audio_duration={duration:.2f}s")
-                
-                # Transcribe audio with Whisper to get accurate word-level timing
                 logger.info(f"Transcribing scene {scene['scene_number']} for accurate timing...")
                 transcription_words = await self.transcribe_audio_with_whisper(audio_file)
-                
                 word_segments = []
                 if transcription_words:
-                    # Align original script words (with punctuation) to transcription timing
                     logger.info(f"Aligning script with transcription for scene {scene['scene_number']}...")
                     aligned_words = self.align_script_with_transcription(
                         scene['subtitles'], 
                         transcription_words
                     )
-                    
-                    # Adjust timing to account for current_time offset
                     for word in aligned_words:
                         word_segments.append({
                             "word": word["word"],
@@ -688,7 +672,6 @@ class VideoGenerator:
                             "end": current_time + word["end"]
                         })
                 else:
-                    # Fallback to simple timing if transcription fails
                     logger.warning(f"Transcription failed for scene {scene['scene_number']}, using fallback timing")
                     words = scene['subtitles'].split()
                     if words:
@@ -701,22 +684,26 @@ class VideoGenerator:
                                 "start": word_start,
                                 "end": word_end
                             })
-                
                 subtitle_segments.append({
                     "start": current_time,
                     "end": current_time + duration,
                     "words": word_segments
                 })
-                
+                # --- IMAGE PROMPT GENERATION AND IMAGE GENERATION ---
+                # Use the actual words for this scene (as a single string) for the prompt
+                caption_phrase = " ".join([w['word'].strip() for w in word_segments])
+                # You can further customize this prompt logic as needed
+                prompt = f"{caption_phrase} | {storyboard_project.get('characters', [])} | {scene.get('description', '')}"
+                # Call the image generation API (example: replicate_flux_api)
+                # You may want to select the correct API based on your config
+                image_url = await replicate_flux_api(task_id, prompt)
+                scene['image'] = image_url
+                logger.info(f"Generated image for scene {scene['scene_number']}: {image_url}")
                 current_time += duration
                 audio_clip.close()
-            
             timings['audio_generation'] = time.time() - start_audio
-            
-            # Report progress after audio/transcription phase (50-60%)
             if progress_callback:
                 await progress_callback(0.52, "Processing clips...")
-            
             # Image processing and clip creation phase
             start_clips = time.time()
             for scene in storyboard_project['storyboards']:

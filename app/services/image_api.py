@@ -56,24 +56,19 @@ async def replicate_flux_api(task_id: str, prompt: str, max_retries: int = 3) ->
     return None
 
 
-async def runware_pocketrag_image_api(task_id: str, prompt: str, max_retries: int = 3) -> Optional[dict]:
+async def runware_pocketrag_image_api(task_id: str, prompt: str, reference_image_url: str, max_retries: int = 3) -> Optional[dict]:
     """Generate image for PocketRAG scenes using Flux.2 [dev] model with reference image
     Returns dict with format: {"url": image_url, "cost": cost}
     """
-    
     POCKETRAG_MODEL = "runware:400@1"  # Flux.2 [dev]
-    POCKETRAG_REFERENCE_IMAGE = "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG"
-    
     for attempt in range(max_retries):
         runware = None
         try:
             # Initialize Runware client
             runware = Runware(api_key=settings.RUNWARE_API_KEY)
             await runware.connect()
-            
             logger.info(f"📱 Generating PocketRAG image with Flux.2 [dev] model for task {task_id}...")
-            logger.info(f"📱 Using reference image: {POCKETRAG_REFERENCE_IMAGE}")
-            
+            logger.info(f"📱 Using reference image: {reference_image_url}")
             # Validate and truncate prompt if needed (Runware limit: 2-3000 chars)
             if not isinstance(prompt, str):
                 logger.error(f"❌ Prompt is not a string: {type(prompt)}")
@@ -90,7 +85,7 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, max_retries: in
             
             # Create request with Flux.2 [dev] model and reference image
             # Using IInputs to properly structure the referenceImages parameter
-            inputs = IInputs(referenceImages=[POCKETRAG_REFERENCE_IMAGE])
+            inputs = IInputs(referenceImages=[reference_image_url])
             
             request_image = IImageInference(
                 positivePrompt=prompt,

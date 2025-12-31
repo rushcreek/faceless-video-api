@@ -108,36 +108,8 @@ class VideoTaskProcessor:
             storyboard_project["characters"] = characters
             await task.update(task_id=task_id, progress=0.30, status_message="Storyboard created")
 
-            # Step 4: Generate images with combined art style + descriptor
-            combined_art_style = art_style
-            if story_style_descriptor:
-                combined_art_style = f"{story_style_descriptor} {art_style}"
-            
-            # Progress callback for image generation (30% to 45% = 15% total)
-            total_images = len(storyboard_project.get("storyboards", []))
-            async def image_progress_callback(completed, total):
-                # Check if task was cancelled
-                current_task = await VideoTask.get(task_id)
-                if current_task.status == "failed":
-                    logger.info(f"Task {task_id} was cancelled during image generation")
-                    raise ValueError("Task cancelled by user")
-                # Map image progress from 30% to 45%
-                progress = 0.30 + (0.15 * (completed / total))
-                await task.update(task_id=task_id, progress=round(progress, 2), status_message=f"Generating images ({completed}/{total})")
-            
-            image_urls = await self.image_generator.generate_images(task_id, storyboard_project, combined_art_style, tweak_prompt, progress_callback=image_progress_callback)
-            if not image_urls:
-                raise ValueError("Failed to generate images")
-            
-            # Log what we got back from image generation
-            logger.info(f"📸 Image generation returned {len(image_urls)} URLs")
-            for idx, url in enumerate(image_urls):
-                if url:
-                    logger.info(f"  Scene {idx+1}: {url[:80]}...")
-                else:
-                    logger.warning(f"  Scene {idx+1}: NULL/EMPTY URL")
-            
-            await task.update(task_id=task_id, progress=0.45, status_message="Images generated")
+            # Step 4: (Image generation moved to video_generator.py after caption timing/phrases are known)
+            await task.update(task_id=task_id, progress=0.45, status_message="Ready for video generation (images will be generated after captions)")
 
             # Step 5: Save images to database
             image_create_tasks = []

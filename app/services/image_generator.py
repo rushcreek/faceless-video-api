@@ -40,7 +40,7 @@ class ImageGenerator:
         # Check if PocketRAG is mentioned - if so, REPLACE the prompt entirely
         if self.has_pocketrag_mention(prompt):
             # Replace entire description with PocketRAG-specific prompt
-            pocketrag_instruction = "An over-the-shoulder shot of a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+            pocketrag_instruction = "A business user talking into a modern iPhone (black or white), with the iPhone prominently displayed and clearly visible. if the phone screen is visible, the iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
             enhanced_prompt = f"{pocketrag_instruction} | {style} | {camera_info} | {lighting_info}"
             logger.info(f"🎯 PocketRAG detected - REPLACING prompt with iPhone-specific description")
         else:
@@ -196,20 +196,25 @@ class ImageGenerator:
                 logger.info(f"Generating {len(regular_prompts)} REGULAR images in parallel batch...")
                 regular_image_results = await runware_flux_batch_api(task_id, regular_prompts)
             
-            # Generate PocketRAG images individually with special model
+            # Reference images to cycle through for PocketRAG scenes
+            pocketrag_reference_images = [
+                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
+                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
+                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.49.28%E2%80%AFPM.png",
+                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
+            ]
             pocketrag_image_results = []
             if pocketrag_scenes:
-                logger.info(f"📱 Generating {len(pocketrag_scenes)} POCKETRAG images with Flux.2 [dev] and reference image...")
+                logger.info(f"📱 Generating {len(pocketrag_scenes)} POCKETRAG images with Flux.2 [dev] and cycling reference images...")
                 for idx, (scene_idx, prompt) in enumerate(pocketrag_scenes):
-                    logger.info(f"📱 PocketRAG image {idx+1}/{len(pocketrag_scenes)}: Calling API for scene {scene_idx+1}")
-                    result = await runware_pocketrag_image_api(task_id, prompt)
-                    
+                    reference_image_url = pocketrag_reference_images[idx % len(pocketrag_reference_images)]
+                    logger.info(f"📱 PocketRAG image {idx+1}/{len(pocketrag_scenes)}: Calling API for scene {scene_idx+1} with reference image {reference_image_url}")
+                    result = await runware_pocketrag_image_api(task_id, prompt, reference_image_url)
                     if result and isinstance(result, dict):
                         image_url = result.get('url')
                         logger.info(f"✅ PocketRAG scene {scene_idx+1} SUCCESS: {image_url}")
                     else:
                         logger.error(f"❌ PocketRAG scene {scene_idx+1} FAILED: result={result}")
-                    
                     pocketrag_image_results.append(result)
             
             # Combine results in correct order
