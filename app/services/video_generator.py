@@ -19,6 +19,7 @@ from moviepy.editor import (
     VideoFileClip
 )
 from app.services.audio_generator import AudioGenerator
+from app.services.image_api import runware_flux_api, runware_pocketrag_image_api
 from app.utils.transitions import zoom 
 from app.core.config import settings
 from app.core.logging import logger
@@ -608,22 +609,7 @@ class VideoGenerator:
         video_path = os.path.join(story_dir, "story_video.mp4")
         clips = []
         
-        # CRITICAL: Validate all scenes have valid images before proceeding
-        logger.info("🔍 Validating images before video generation...")
-        missing_or_failed = []
-        for scene in storyboard_project['storyboards']:
-            image_url = scene.get('image')
-            scene_number = scene.get('scene_number', 'unknown')
-            
-            if not image_url:
-                missing_or_failed.append(f"Scene {scene_number} (no image URL)")
-        
-        if missing_or_failed:
-            error_msg = f"Cannot generate video: {len(missing_or_failed)} scene(s) missing images: {', '.join(missing_or_failed)}"
-            logger.error(f"❌ FATAL: {error_msg}")
-            raise ValueError(error_msg)
-        
-        logger.info("✅ All scenes have valid image URLs")
+        # NOTE: Image validation moved to after image generation (images are generated in this function now)
         
         # Timing profiling
         timings = {}
@@ -692,16 +678,97 @@ class VideoGenerator:
                 # --- IMAGE PROMPT GENERATION AND IMAGE GENERATION ---
                 # Use the actual words for this scene (as a single string) for the prompt
                 caption_phrase = " ".join([w['word'].strip() for w in word_segments])
-                # You can further customize this prompt logic as needed
-                prompt = f"{caption_phrase} | {storyboard_project.get('characters', [])} | {scene.get('description', '')}"
-                # Call the image generation API (example: replicate_flux_api)
-                # You may want to select the correct API based on your config
-                image_url = await replicate_flux_api(task_id, prompt)
-                scene['image'] = image_url
-                logger.info(f"Generated image for scene {scene['scene_number']}: {image_url}")
+                fallback_used = False
+                # Fallback if caption_phrase is empty or too short
+                if not caption_phrase.strip() or len(caption_phrase.strip()) < 3:
+                    fallback_used = True
+                    # Prefer description, then subtitles
+                    fallback_prompt = scene.get('description', '') or scene.get('subtitles', '')
+                    prompt = f"{fallback_prompt} | {storyboard_project.get('characters', [])}"
+                    logger.warning(f"Scene {scene['scene_number']}: Caption phrase too short/empty, using fallback prompt: {prompt}")
+                else:
+                    prompt = f"{caption_phrase} | {storyboard_project.get('characters', [])} | {scene.get('description', '')}"
+                logger.info(f"Scene {scene['scene_number']}: Image prompt: {prompt}")
+                
+                # Check if this scene mentions PocketRAG - use reference images if so
+                description = scene.get('description', '')
+                subtitles = scene.get('subtitles', '')
+                project_title = storyboard_project.get('project_info', {}).get('title', '')
+                is_pocketrag = (self.has_pocketrag_mention(project_title) or 
+                               self.has_pocketrag_mention(description) or 
+                               self.has_pocketrag_mention(subtitles) or
+                               self.has_pocketrag_mention(prompt))
+                
+                if is_pocketrag:
+                    # Use PocketRAG reference images - cycle through them
+                    pocketrag_reference_images = [
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.49.28%E2%80%AFPM.png",
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
+                    ]
+                    reference_image_url = pocketrag_reference_images[scene['scene_number'] % len(pocketrag_reference_images)]
+                    logger.info(f"🎯 Scene {scene['scene_number']}: POCKETRAG DETECTED - using reference image: {reference_image_url}")
+                    result = await runware_pocketrag_image_api(task_id, prompt, reference_image_url)
+                else:
+                    # Regular image generation
+                    result = await runware_flux_api(task_id, prompt)
+                
+                # Process result - both APIs return {"url": image_url, "cost": cost} or None
+                if result and isinstance(result, dict):
+                    image_url = result.get('url')
+                    scene['image'] = image_url
+                    scene['image_generation_cost'] = result.get('cost')
+                    logger.info(f"Generated image for scene {scene['scene_number']}: {image_url} (cost: {result.get('cost')})")
+                else:
+                    scene['image'] = None
+                    logger.error(f"Image generation FAILED for scene {scene['scene_number']} with prompt: {prompt}")
                 current_time += duration
                 audio_clip.close()
             timings['audio_generation'] = time.time() - start_audio
+            
+            # CRITICAL: Validate all scenes have valid images AFTER image generation
+            logger.info("🔍 Validating images after generation...")
+            missing_or_failed = []
+            for scene in storyboard_project['storyboards']:
+                image_url = scene.get('image')
+                scene_number = scene.get('scene_number', 'unknown')
+                
+                if not image_url:
+                    missing_or_failed.append(f"Scene {scene_number}")
+            
+            if missing_or_failed:
+                error_msg = f"Image generation failed for {len(missing_or_failed)} scene(s): {', '.join(missing_or_failed)}. Cannot proceed with video generation."
+                logger.error(f"❌ FATAL: {error_msg}")
+                raise ValueError(error_msg)
+            
+            logger.info("✅ All scenes have valid image URLs")
+            
+            # Save images to database now that they've been generated
+            if task_id:
+                from uuid import uuid4
+                from app.models.image import Image
+                logger.info(f"💾 Saving {len(storyboard_project['storyboards'])} image records to database...")
+                for scene in storyboard_project['storyboards']:
+                    image_url = scene.get('image')
+                    scene_number = scene.get('scene_number')
+                    image_data = {
+                        "id": str(uuid4()),
+                        "task_id": task_id,
+                        "scene_number": scene_number,
+                        "urls": [image_url] if image_url else [],
+                        "subtitles": scene.get('subtitles', ''),
+                        "status": "completed" if image_url else "failed",
+                        "enhanced_prompt": scene.get('enhanced_prompt', ''),
+                        "video_generation_request": scene.get('video_generation_request'),
+                        "audio_duration": scene.get('audio_duration'),
+                        "image_generation_cost": scene.get('image_generation_cost'),
+                        "error_message": scene.get('error_message', '')
+                    }
+                    await Image.create(**image_data)
+                    logger.info(f"  ✅ Saved scene {scene_number} to database")
+                logger.info(f"✅ All image records saved to database")
+            
             if progress_callback:
                 await progress_callback(0.52, "Processing clips...")
             # Image processing and clip creation phase
