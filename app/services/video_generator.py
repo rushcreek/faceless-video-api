@@ -376,12 +376,22 @@ class VideoGenerator:
         phrases = []
         i = 0
         
+        def ends_with_sentence_boundary(word_text):
+            """Check if word ends with sentence-ending punctuation"""
+            return word_text.rstrip().endswith(('.', '!', '?'))
+        
         while i < len(all_words):
             phrase_words = []
             
             while i < len(all_words) and len(phrase_words) < MAX_WORDS_PER_LINE * 2:
                 phrase_words.append(all_words[i])
+                current_word = all_words[i]
                 i += 1
+                
+                # Break immediately after a sentence boundary (period, !, ?)
+                if ends_with_sentence_boundary(current_word['text']):
+                    logger.debug(f"Breaking phrase at sentence boundary: '{current_word['text']}'")
+                    break
                 
                 if len(phrase_words) >= MIN_WORDS_PER_PHRASE:
                     found_valid_split = False
@@ -616,8 +626,10 @@ class VideoGenerator:
         start_total = time.time()
         
         # Store subtitle timing info for custom caption segments
+        # NOTE: We'll build this AFTER clip creation to ensure sync with actual video
         subtitle_segments = []
-        current_time = 0.0
+        current_time = 0.0  # Used during audio/image generation phase
+        clip_current_time = 0.0  # Used during clip creation phase for accurate caption timing
         
         try:
             # Audio generation, transcription, and caption phrase/timing
@@ -644,7 +656,10 @@ class VideoGenerator:
                     logger.info(f"✅ Updated database: scene {scene['scene_number']} audio_duration={duration:.2f}s")
                 logger.info(f"Transcribing scene {scene['scene_number']} for accurate timing...")
                 transcription_words = await self.transcribe_audio_with_whisper(audio_file)
-                word_segments = []
+                
+                # Store RELATIVE word timing (relative to scene start, not absolute)
+                # We'll convert to absolute timing during clip creation
+                relative_word_segments = []
                 if transcription_words:
                     logger.info(f"Aligning script with transcription for scene {scene['scene_number']}...")
                     aligned_words = self.align_script_with_transcription(
@@ -652,10 +667,10 @@ class VideoGenerator:
                         transcription_words
                     )
                     for word in aligned_words:
-                        word_segments.append({
+                        relative_word_segments.append({
                             "word": word["word"],
-                            "start": current_time + word["start"],
-                            "end": current_time + word["end"]
+                            "start": word["start"],  # Relative to scene start
+                            "end": word["end"]       # Relative to scene start
                         })
                 else:
                     logger.warning(f"Transcription failed for scene {scene['scene_number']}, using fallback timing")
@@ -663,21 +678,20 @@ class VideoGenerator:
                     if words:
                         word_duration = duration / len(words)
                         for i, word in enumerate(words):
-                            word_start = current_time + (i * word_duration)
+                            word_start = i * word_duration
                             word_end = word_start + word_duration
-                            word_segments.append({
+                            relative_word_segments.append({
                                 "word": " " + word,
-                                "start": word_start,
-                                "end": word_end
+                                "start": word_start,  # Relative to scene start
+                                "end": word_end       # Relative to scene start
                             })
-                subtitle_segments.append({
-                    "start": current_time,
-                    "end": current_time + duration,
-                    "words": word_segments
-                })
+                
+                # Store in scene object for use during clip creation
+                scene['_word_segments'] = relative_word_segments
+                
                 # --- IMAGE PROMPT GENERATION AND IMAGE GENERATION ---
                 # Use the actual words for this scene (as a single string) for the prompt
-                caption_phrase = " ".join([w['word'].strip() for w in word_segments])
+                caption_phrase = " ".join([w['word'].strip() for w in relative_word_segments])
                 fallback_used = False
                 # Fallback if caption_phrase is empty or too short
                 if not caption_phrase.strip() or len(caption_phrase.strip()) < 3:
@@ -690,7 +704,7 @@ class VideoGenerator:
                     prompt = f"{caption_phrase} | {storyboard_project.get('characters', [])} | {scene.get('description', '')}"
                 logger.info(f"Scene {scene['scene_number']}: Image prompt: {prompt}")
                 
-                # Check if this scene mentions PocketRAG - use reference images if so
+                # Check if this scene mentions PocketRAG - use reference images and special prompt if so
                 description = scene.get('description', '')
                 subtitles = scene.get('subtitles', '')
                 project_title = storyboard_project.get('project_info', {}).get('title', '')
@@ -700,6 +714,12 @@ class VideoGenerator:
                                self.has_pocketrag_mention(prompt))
                 
                 if is_pocketrag:
+                    # REPLACE the prompt with PocketRAG-specific iPhone instruction
+                    pocketrag_instruction = "An over-the-shoulder shot of a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+                    prompt = f"{pocketrag_instruction} | {caption_phrase}"
+                    logger.info(f"🎯 Scene {scene['scene_number']}: POCKETRAG DETECTED - REPLACED prompt with iPhone instruction")
+                    logger.info(f"🎯 New prompt: {prompt[:150]}...")
+                    
                     # Use PocketRAG reference images - cycle through them
                     pocketrag_reference_images = [
                         "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
@@ -708,7 +728,7 @@ class VideoGenerator:
                         "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
                     ]
                     reference_image_url = pocketrag_reference_images[scene['scene_number'] % len(pocketrag_reference_images)]
-                    logger.info(f"🎯 Scene {scene['scene_number']}: POCKETRAG DETECTED - using reference image: {reference_image_url}")
+                    logger.info(f"🎯 Using reference image: {reference_image_url}")
                     result = await runware_pocketrag_image_api(task_id, prompt, reference_image_url)
                 else:
                     # Regular image generation
@@ -819,6 +839,7 @@ class VideoGenerator:
                     
                     if not image_url:
                         logger.error(f"Skipping scene {scene['scene_number']}: no image URL available")
+                        audio_clip.close()  # Clean up before skipping
                         continue
                     
                     image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
@@ -827,11 +848,13 @@ class VideoGenerator:
                 
                     if downloaded_image is None:
                         logger.error(f"Skipping scene {scene['scene_number']} due to image download failure")
+                        audio_clip.close()  # Clean up before skipping
                         continue
                 
                     # Validate the downloaded image file exists and has content
                     if not os.path.exists(downloaded_image) or os.path.getsize(downloaded_image) == 0:
                         logger.error(f"Skipping scene {scene['scene_number']}: image file is missing or empty")
+                        audio_clip.close()  # Clean up before skipping
                         continue
                 
                     logger.info(f"Successfully downloaded image for scene {scene['scene_number']}: {downloaded_image} ({os.path.getsize(downloaded_image)} bytes)")
@@ -898,6 +921,7 @@ class VideoGenerator:
                         # Validate image dimensions
                         if temp_clip.w == 0 or temp_clip.h == 0:
                             logger.error(f"Skipping scene {scene['scene_number']}: image has invalid dimensions ({temp_clip.w}x{temp_clip.h})")
+                            audio_clip.close()  # Clean up before skipping
                             continue
                         
                         audio_duration = audio_clip.duration
@@ -943,11 +967,33 @@ class VideoGenerator:
                         clips.append(zoom(video_clip, mode='out'))
                     else:
                         clips.append(video_clip)
+                    
+                    # Build subtitle_segments with CORRECT timing (only for clips that make it into the video)
+                    relative_words = scene.get('_word_segments', [])
+                    if relative_words:
+                        # Convert relative timing to absolute timing based on clip_current_time
+                        absolute_word_segments = []
+                        for word in relative_words:
+                            absolute_word_segments.append({
+                                "word": word["word"],
+                                "start": clip_current_time + word["start"],
+                                "end": clip_current_time + word["end"]
+                            })
+                        subtitle_segments.append({
+                            "start": clip_current_time,
+                            "end": clip_current_time + audio_duration,
+                            "words": absolute_word_segments
+                        })
+                        logger.info(f"Scene {scene['scene_number']}: Added subtitle segment at {clip_current_time:.2f}s - {clip_current_time + audio_duration:.2f}s")
+                    
+                    # Advance clip_current_time by the actual clip duration
+                    clip_current_time += audio_duration
                         
                 except Exception as e:
                     logger.error(f"❌ Error processing scene {scene['scene_number']}: {type(e).__name__}: {str(e)}")
                     logger.error(f"  Scene details - has video_clip_url: {bool(video_clip_url)}, is_pocketrag: {is_pocketrag_scene}")
                     logger.error(f"  Stack trace:", exc_info=True)
+                    audio_clip.close()  # Clean up before skipping
                     continue
 
             timings['clip_creation'] = time.time() - start_clips

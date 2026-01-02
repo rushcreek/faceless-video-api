@@ -84,9 +84,7 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, reference_image
             logger.info(f"📝 Prompt length: {len(prompt)} characters")
             
             # Create request with Flux.2 [dev] model and reference image
-            # Using IInputs to properly structure the referenceImages parameter
-            inputs = IInputs(referenceImages=[reference_image_url])
-            
+            # referenceImages is passed directly to IImageInference, not through IInputs
             request_image = IImageInference(
                 positivePrompt=prompt,
                 model=POCKETRAG_MODEL,
@@ -98,7 +96,7 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, reference_image
                 CFGScale=3.5,
                 scheduler="FlowMatchEulerDiscreteScheduler",
                 includeCost=True,
-                inputs=inputs,
+                referenceImages=[reference_image_url],
                 outputType=["URL"]
             )
             
