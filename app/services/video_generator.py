@@ -43,10 +43,12 @@ class VideoGenerator:
         pocketrag_variations = ['pocketrag', 'pocket rag', 'pocket-rag']
         return any(variation in text_lower for variation in pocketrag_variations)
     
-    def align_script_with_transcription(self, original_text, transcription_words):
+    def align_script_with_transcription(self, original_text, transcription_words, audio_duration=None):
         """
         Align original script words (with punctuation) to Whisper transcription words (with timing).
         Returns words from original script with timing from transcription.
+        
+        If audio_duration is provided, ensures words span the full audio duration.
         """
         # Clean words for matching (remove punctuation, lowercase)
         import re
@@ -57,16 +59,42 @@ class VideoGenerator:
         # Split original text into words, preserving original form
         original_words = original_text.split()
         
+        if not original_words:
+            return []
+        
+        # If no transcription or audio_duration provided, use even distribution as fallback
+        if not transcription_words:
+            if audio_duration:
+                word_duration = audio_duration / len(original_words)
+                return [{
+                    "word": " " + word,
+                    "start": i * word_duration,
+                    "end": (i + 1) * word_duration
+                } for i, word in enumerate(original_words)]
+            else:
+                return [{
+                    "word": " " + word,
+                    "start": i * 0.3,
+                    "end": (i + 1) * 0.3
+                } for i, word in enumerate(original_words)]
+        
         # Extract clean transcription words
         transcribed_clean = [clean_word(w['word']) for w in transcription_words]
         original_clean = [clean_word(w) for w in original_words]
         
+        # Get the full audio span from transcription
+        trans_start = transcription_words[0]['start']
+        trans_end = transcription_words[-1]['end']
+        
+        # If audio_duration is provided and longer than transcription, use it
+        if audio_duration and audio_duration > trans_end:
+            actual_end = audio_duration
+        else:
+            actual_end = trans_end
+        
         # Use sequence matcher to align
         matcher = SequenceMatcher(None, original_clean, transcribed_clean)
         aligned_words = []
-        
-        orig_idx = 0
-        trans_idx = 0
         
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == 'equal':
@@ -93,7 +121,7 @@ class VideoGenerator:
                             "end": trans_word['end']
                         })
                 else:
-                    # Different lengths - distribute timing evenly
+                    # Different lengths - distribute timing evenly across the trans_chunk span
                     if trans_chunk:
                         start_time = trans_chunk[0]['start']
                         end_time = trans_chunk[-1]['end']
@@ -121,6 +149,15 @@ class VideoGenerator:
             elif tag == 'insert':
                 # Word in transcription but not original - skip it
                 pass
+        
+        # CRITICAL FIX: Ensure the last word extends to fill the audio duration
+        # This keeps captions visible for the entire scene even if speech ends early
+        if aligned_words and audio_duration:
+            last_word_end = aligned_words[-1]['end']
+            if last_word_end < audio_duration:
+                # Extend the last word's display time to fill the audio
+                logger.debug(f"Extending last word from {last_word_end:.2f}s to {audio_duration:.2f}s")
+                aligned_words[-1]['end'] = audio_duration
         
         return aligned_words
     
@@ -266,12 +303,11 @@ class VideoGenerator:
     
     def _add_captions_moviepy_sync(self, video_file, output_file, font_path, segments, progress_callback=None):
         """
-        2-line captions with word-by-word yellow highlighting.
-        - Line 1: up to 4 words
-        - Line 2: up to 4 words  
-        - Total phrase width must be <= 90% of video width
-        - Minimum 4 words per phrase (unless end of segment)
-        - Shadow layer for readability
+        Phrase-based captions with word-by-word yellow highlighting.
+        - Shows multiple words at a time (phrase)
+        - White text for all words in phrase
+        - Yellow highlight on currently spoken word
+        - Strong shadow for readability on light backgrounds
         """
         from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip
         import os
@@ -328,143 +364,66 @@ class VideoGenerator:
             return
         
         # Caption settings
-        MAX_LINE_WIDTH = int(video.w * 0.90)
-        FONT_SIZE = 80  # Fixed size for consistency
-        WORD_SPACING = 15
-        LINE_SPACING = int(FONT_SIZE * 1.15)
-        MAX_WORDS_PER_LINE = 3
-        MIN_WORDS_PER_PHRASE = 4
-        SHADOW_OFFSET = 3  # Shadow offset in pixels
+        FONT_SIZE = 80
+        MAX_WORDS_PER_PHRASE = 5  # Show up to 5 words at a time
+        WORD_SPACING = 18  # Space between words
         
-        logger.info(f"Caption settings: font_size={FONT_SIZE}, max_width={MAX_LINE_WIDTH}, video={video.w}x{video.h}")
+        # Position captions in lower third (more common for video captions)
+        caption_y = int(video.h * 0.75)
         
-        # Pre-calculate word widths using a test clip (without stroke for accurate measurement)
-        logger.info("Measuring word widths...")
+        logger.info(f"Caption settings: font_size={FONT_SIZE}, y={caption_y}, max_words={MAX_WORDS_PER_PHRASE}")
+        update_progress(0.92, "Adding captions: Measuring words...")
+        
+        # Pre-measure word widths
         word_widths = {}
         for word in all_words:
             if word['text'] not in word_widths:
                 try:
-                    test_clip = TextClip(
-                        word['text'],
-                        fontsize=FONT_SIZE,
-                        font=font_path,
-                        color='white'
-                    )
+                    test_clip = TextClip(word['text'], fontsize=FONT_SIZE, font=font_path, color='white')
                     word_widths[word['text']] = test_clip.w
                     test_clip.close()
-                except Exception as e:
-                    logger.error(f"Error measuring word '{word['text']}': {e}")
-                    word_widths[word['text']] = FONT_SIZE * len(word['text']) * 0.6  # Estimate
+                except:
+                    word_widths[word['text']] = FONT_SIZE * len(word['text']) * 0.6
         
-        logger.info(f"Measured {len(word_widths)} unique words")
-        update_progress(0.92, "Adding captions: Analyzing word layout...")
+        # Group words into phrases
+        def ends_sentence(text):
+            return text.rstrip().endswith(('.', '!', '?'))
         
-        def get_line_width(words_list):
-            """Calculate total width of a line of words"""
-            if not words_list:
-                return 0
-            total = sum(word_widths.get(w['text'], 50) for w in words_list)
-            total += WORD_SPACING * (len(words_list) - 1)
-            return total
-        
-        def can_fit_line(words_list):
-            """Check if words fit in one line"""
-            return len(words_list) <= MAX_WORDS_PER_LINE and get_line_width(words_list) <= MAX_LINE_WIDTH
-        
-        # Group words into 2-line phrases
-        logger.info("Grouping words into phrases...")
         phrases = []
         i = 0
-        
-        def ends_with_sentence_boundary(word_text):
-            """Check if word ends with sentence-ending punctuation"""
-            return word_text.rstrip().endswith(('.', '!', '?'))
-        
         while i < len(all_words):
             phrase_words = []
+            phrase_width = 0
+            max_width = video.w * 0.85
             
-            while i < len(all_words) and len(phrase_words) < MAX_WORDS_PER_LINE * 2:
-                phrase_words.append(all_words[i])
-                current_word = all_words[i]
+            while i < len(all_words) and len(phrase_words) < MAX_WORDS_PER_PHRASE:
+                word = all_words[i]
+                word_w = word_widths.get(word['text'], 50)
+                new_width = phrase_width + word_w + (WORD_SPACING if phrase_words else 0)
+                
+                if new_width > max_width and phrase_words:
+                    break
+                    
+                phrase_words.append(word)
+                phrase_width = new_width
                 i += 1
                 
-                # Break immediately after a sentence boundary (period, !, ?)
-                if ends_with_sentence_boundary(current_word['text']):
-                    logger.debug(f"Breaking phrase at sentence boundary: '{current_word['text']}'")
+                # Break at sentence boundaries
+                if ends_sentence(word['text']):
                     break
-                
-                if len(phrase_words) >= MIN_WORDS_PER_PHRASE:
-                    found_valid_split = False
-                    for split_at in range(2, len(phrase_words) - 1):
-                        line1 = phrase_words[:split_at]
-                        line2 = phrase_words[split_at:]
-                        
-                        if can_fit_line(line1) and can_fit_line(line2):
-                            if abs(len(line1) - len(line2)) <= 2:
-                                found_valid_split = True
-                                break
-                    
-                    if found_valid_split and len(phrase_words) >= 6:
-                        break
-                    
-                    if len(phrase_words) >= MAX_WORDS_PER_LINE * 2:
-                        break
             
-            best_split = None
-            best_balance = 999
-            
-            for split_at in range(1, len(phrase_words)):
-                line1 = phrase_words[:split_at]
-                line2 = phrase_words[split_at:]
-                
-                if (len(line1) == 1 or len(line2) == 1) and len(phrase_words) > 2:
-                    continue
-                
-                if can_fit_line(line1) and can_fit_line(line2):
-                    balance = abs(len(line1) - len(line2))
-                    if balance < best_balance:
-                        best_balance = balance
-                        best_split = (line1, line2)
-            
-            if best_split is None:
-                if len(phrase_words) <= MAX_WORDS_PER_LINE:
-                    best_split = (phrase_words, [])
-                else:
-                    mid = len(phrase_words) // 2
-                    best_split = (phrase_words[:mid], phrase_words[mid:])
-            
-            line1, line2 = best_split
-            phrases.append({
-                'line1': line1,
-                'line2': line2,
-                'start': phrase_words[0]['start'],
-                'end': phrase_words[-1]['end'],
-                'all_words': phrase_words
-            })
+            if phrase_words:
+                phrases.append({
+                    'words': phrase_words,
+                    'start': phrase_words[0]['start'],
+                    'end': phrase_words[-1]['end'],
+                    'width': phrase_width
+                })
         
-        logger.info(f"Created {len(phrases)} caption phrases")
-        update_progress(0.93, "Adding captions: Rendering text clips...")
+        logger.info(f"Created {len(phrases)} phrases from {len(all_words)} words")
+        update_progress(0.93, "Adding captions: Rendering phrases...")
         
-        # Create caption clips
         caption_clips = []
-        caption_y = int(video.h * 0.78)
-        
-        # Cache for TextClips
-        clip_cache = {}
-        
-        def get_text_clip(text, color):
-            """Get or create a TextClip with caching - NO stroke, shadow handled separately"""
-            key = f"{text}_{color}"
-            if key not in clip_cache:
-                clip_cache[key] = TextClip(
-                    text,
-                    fontsize=FONT_SIZE,
-                    font=font_path,
-                    color=color
-                )
-            return clip_cache[key]
-        
-        logger.info("Rendering caption clips...")
         
         for phrase_idx, phrase in enumerate(phrases):
             if phrase_idx % 5 == 0:
@@ -474,83 +433,65 @@ class VideoGenerator:
             phrase_end = phrase['end']
             phrase_duration = phrase_end - phrase_start
             
-            # Calculate line positions
-            line1_width = get_line_width(phrase['line1'])
-            line2_width = get_line_width(phrase['line2']) if phrase['line2'] else 0
+            if phrase_duration <= 0:
+                continue
             
-            line1_x = (video.w - line1_width) // 2
-            line2_x = (video.w - line2_width) // 2 if phrase['line2'] else 0
+            # Calculate starting x position to center the phrase
+            phrase_width = phrase['width']
+            start_x = (video.w - phrase_width) // 2
             
-            # Build position arrays
-            line1_positions = []
-            x = 0
-            for w in phrase['line1']:
-                line1_positions.append(x)
-                x += word_widths.get(w['text'], 50) + WORD_SPACING
+            # Build word positions
+            word_positions = []
+            x = start_x
+            for word in phrase['words']:
+                word_positions.append(x)
+                x += word_widths.get(word['text'], 50) + WORD_SPACING
             
-            line2_positions = []
-            x = 0
-            for w in phrase['line2']:
-                line2_positions.append(x)
-                x += word_widths.get(w['text'], 50) + WORD_SPACING
-            
-            # === LINE 1 ===
-            # Create shadow layer (black text offset)
-            for idx, word in enumerate(phrase['line1']):
-                word_x = line1_x + line1_positions[idx]
-                shadow_clip = get_text_clip(word['text'], 'black').copy()
-                shadow_clip = shadow_clip.set_position((word_x + SHADOW_OFFSET, caption_y + SHADOW_OFFSET))
-                shadow_clip = shadow_clip.set_start(phrase_start).set_duration(phrase_duration)
-                caption_clips.append(shadow_clip)
-            
-            # Create white base words
-            for idx, word in enumerate(phrase['line1']):
-                word_x = line1_x + line1_positions[idx]
-                white_clip = get_text_clip(word['text'], 'white').copy()
-                white_clip = white_clip.set_position((word_x, caption_y))
-                white_clip = white_clip.set_start(phrase_start).set_duration(phrase_duration)
-                caption_clips.append(white_clip)
-            
-            # Create yellow highlights
-            word_index = 0
-            for idx, word in enumerate(phrase['line1']):
-                if word_index < len(phrase['all_words']):
-                    timing = phrase['all_words'][word_index]
-                    word_x = line1_x + line1_positions[idx]
-                    yellow_clip = get_text_clip(word['text'], 'yellow').copy()
-                    yellow_clip = yellow_clip.set_position((word_x, caption_y))
-                    yellow_clip = yellow_clip.set_start(timing['start']).set_duration(timing['end'] - timing['start'])
-                    caption_clips.append(yellow_clip)
-                    word_index += 1
-            
-            # === LINE 2 ===
-            if phrase['line2']:
-                # Create shadow layer
-                for idx, word in enumerate(phrase['line2']):
-                    word_x = line2_x + line2_positions[idx]
-                    shadow_clip = get_text_clip(word['text'], 'black').copy()
-                    shadow_clip = shadow_clip.set_position((word_x + SHADOW_OFFSET, caption_y + LINE_SPACING + SHADOW_OFFSET))
-                    shadow_clip = shadow_clip.set_start(phrase_start).set_duration(phrase_duration)
-                    caption_clips.append(shadow_clip)
+            # Create clips for each word in the phrase
+            for word_idx, word in enumerate(phrase['words']):
+                word_x = word_positions[word_idx]
+                word_text = word['text']
                 
-                # Create white base words
-                for idx, word in enumerate(phrase['line2']):
-                    word_x = line2_x + line2_positions[idx]
-                    white_clip = get_text_clip(word['text'], 'white').copy()
-                    white_clip = white_clip.set_position((word_x, caption_y + LINE_SPACING))
+                try:
+                    # === SHADOW LAYERS (multiple for stronger effect) ===
+                    # Shadow 1: Bottom-right offset
+                    shadow1 = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='black')
+                    shadow1 = shadow1.set_position((word_x + 4, caption_y + 4))
+                    shadow1 = shadow1.set_start(phrase_start).set_duration(phrase_duration)
+                    caption_clips.append(shadow1)
+                    
+                    # Shadow 2: Slight offset for thickness
+                    shadow2 = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='black')
+                    shadow2 = shadow2.set_position((word_x + 2, caption_y + 2))
+                    shadow2 = shadow2.set_start(phrase_start).set_duration(phrase_duration)
+                    caption_clips.append(shadow2)
+                    
+                    # Shadow 3: Left offset for balanced shadow
+                    shadow3 = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='black')
+                    shadow3 = shadow3.set_position((word_x - 2, caption_y + 2))
+                    shadow3 = shadow3.set_start(phrase_start).set_duration(phrase_duration)
+                    caption_clips.append(shadow3)
+                    
+                    # === WHITE BASE TEXT (visible for entire phrase duration) ===
+                    white_clip = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='white')
+                    white_clip = white_clip.set_position((word_x, caption_y))
                     white_clip = white_clip.set_start(phrase_start).set_duration(phrase_duration)
                     caption_clips.append(white_clip)
-                
-                # Create yellow highlights
-                for idx, word in enumerate(phrase['line2']):
-                    if word_index < len(phrase['all_words']):
-                        timing = phrase['all_words'][word_index]
-                        word_x = line2_x + line2_positions[idx]
-                        yellow_clip = get_text_clip(word['text'], 'yellow').copy()
-                        yellow_clip = yellow_clip.set_position((word_x, caption_y + LINE_SPACING))
-                        yellow_clip = yellow_clip.set_start(timing['start']).set_duration(timing['end'] - timing['start'])
+                    
+                    # === YELLOW HIGHLIGHT (only when this word is being spoken) ===
+                    word_start = word['start']
+                    word_end = word['end']
+                    highlight_duration = word_end - word_start
+                    
+                    if highlight_duration > 0:
+                        yellow_clip = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='yellow')
+                        yellow_clip = yellow_clip.set_position((word_x, caption_y))
+                        yellow_clip = yellow_clip.set_start(word_start).set_duration(highlight_duration)
                         caption_clips.append(yellow_clip)
-                        word_index += 1
+                    
+                except Exception as e:
+                    logger.error(f"Error creating clip for word '{word_text}': {e}")
+                    continue
         
         logger.info(f"Created {len(caption_clips)} caption elements")
         logger.info("Compositing video with captions...")
@@ -572,7 +513,7 @@ class VideoGenerator:
         
         # Cleanup
         logger.info("Cleaning up resources...")
-        for clip in clip_cache.values():
+        for clip in caption_clips:
             try:
                 clip.close()
             except:
@@ -636,13 +577,39 @@ class VideoGenerator:
             start_audio = time.time()
             for scene in storyboard_project['storyboards']:
                 audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
-                if os.path.exists(audio_file):
-                    logger.info(f"♻️ Audio file already exists for scene {scene['scene_number']}, skipping generation")
-                else:
+                
+                # Check if cached audio matches current subtitle text
+                # Use a hash file to track what text was used to generate the audio
+                import hashlib
+                subtitle_hash = hashlib.md5(scene['subtitles'].encode()).hexdigest()[:8]
+                hash_file = audio_file.replace('.mp3', '.hash')
+                
+                audio_needs_regeneration = True
+                if os.path.exists(audio_file) and os.path.exists(hash_file):
+                    try:
+                        with open(hash_file, 'r') as f:
+                            cached_hash = f.read().strip()
+                        if cached_hash == subtitle_hash:
+                            logger.info(f"♻️ Audio file already exists for scene {scene['scene_number']} with matching content, skipping generation")
+                            audio_needs_regeneration = False
+                        else:
+                            logger.info(f"⚠️ Audio file exists for scene {scene['scene_number']} but content changed (hash mismatch), regenerating")
+                    except Exception as e:
+                        logger.warning(f"Could not read hash file for scene {scene['scene_number']}: {e}")
+                elif os.path.exists(audio_file):
+                    logger.info(f"⚠️ Audio file exists for scene {scene['scene_number']} but no hash file found, regenerating to ensure sync")
+                
+                if audio_needs_regeneration:
                     success = await self.audio_generator.generate_audio(scene['subtitles'], audio_file, voice_name)
                     if not success:
                         logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
                         continue
+                    # Save the hash for future runs
+                    try:
+                        with open(hash_file, 'w') as f:
+                            f.write(subtitle_hash)
+                    except Exception as e:
+                        logger.warning(f"Could not write hash file for scene {scene['scene_number']}: {e}")
                 audio_clip = AudioFileClip(audio_file)
                 duration = audio_clip.duration
                 scene['audio_duration'] = duration
@@ -657,6 +624,32 @@ class VideoGenerator:
                 logger.info(f"Transcribing scene {scene['scene_number']} for accurate timing...")
                 transcription_words = await self.transcribe_audio_with_whisper(audio_file)
                 
+                # Log what Whisper transcribed vs original script for debugging sync issues
+                if transcription_words:
+                    whisper_text = " ".join([w['word'].strip() for w in transcription_words])
+                    logger.info(f"Scene {scene['scene_number']} TRANSCRIPTION DEBUG:")
+                    logger.info(f"  Original script: '{scene['subtitles']}'")
+                    logger.info(f"  Whisper heard:   '{whisper_text}'")
+                    logger.info(f"  Original words: {len(scene['subtitles'].split())}, Whisper words: {len(transcription_words)}")
+                    
+                    # Check if transcription is wildly different from script (audio mismatch)
+                    # Normalize both strings for comparison
+                    import re
+                    def normalize_text(text):
+                        return re.sub(r'[^\w\s]', '', text.lower()).split()
+                    
+                    orig_words = normalize_text(scene['subtitles'])
+                    whisper_words = normalize_text(whisper_text)
+                    
+                    # Check if first and last words roughly match (allowing for minor variations)
+                    if orig_words and whisper_words:
+                        first_match = orig_words[0][:3] == whisper_words[0][:3] if len(orig_words[0]) >= 3 and len(whisper_words[0]) >= 3 else orig_words[0] == whisper_words[0]
+                        last_match = orig_words[-1][:3] == whisper_words[-1][:3] if len(orig_words[-1]) >= 3 and len(whisper_words[-1]) >= 3 else orig_words[-1] == whisper_words[-1]
+                        
+                        if not first_match and not last_match:
+                            logger.error(f"⚠️ AUDIO MISMATCH DETECTED for scene {scene['scene_number']}!")
+                            logger.error(f"   Audio file may contain wrong content. Captions may be incorrect.")
+                
                 # Store RELATIVE word timing (relative to scene start, not absolute)
                 # We'll convert to absolute timing during clip creation
                 relative_word_segments = []
@@ -664,7 +657,8 @@ class VideoGenerator:
                     logger.info(f"Aligning script with transcription for scene {scene['scene_number']}...")
                     aligned_words = self.align_script_with_transcription(
                         scene['subtitles'], 
-                        transcription_words
+                        transcription_words,
+                        audio_duration=duration  # Pass audio duration to ensure words fill the scene
                     )
                     for word in aligned_words:
                         relative_word_segments.append({
