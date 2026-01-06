@@ -698,18 +698,17 @@ class VideoGenerator:
                     prompt = f"{caption_phrase} | {storyboard_project.get('characters', [])} | {scene.get('description', '')}"
                 logger.info(f"Scene {scene['scene_number']}: Image prompt: {prompt}")
                 
-                # Check if this scene mentions PocketRAG - use reference images and special prompt if so
+                # Check if THIS SPECIFIC SCENE mentions PocketRAG - use reference images and special prompt if so
+                # NOTE: Only check scene-specific content (description, subtitles), NOT project title
+                # to avoid triggering PocketRAG mode for ALL scenes when only some mention it
                 description = scene.get('description', '')
                 subtitles = scene.get('subtitles', '')
-                project_title = storyboard_project.get('project_info', {}).get('title', '')
-                is_pocketrag = (self.has_pocketrag_mention(project_title) or 
-                               self.has_pocketrag_mention(description) or 
-                               self.has_pocketrag_mention(subtitles) or
-                               self.has_pocketrag_mention(prompt))
+                is_pocketrag = (self.has_pocketrag_mention(description) or 
+                               self.has_pocketrag_mention(subtitles))
                 
                 if is_pocketrag:
                     # REPLACE the prompt with PocketRAG-specific iPhone instruction
-                    pocketrag_instruction = "An over-the-shoulder shot of a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+                    pocketrag_instruction = "A person holding a modern iPhone (black or white), with the iPhone screen displayed and visible. The iPhone screen shows the PocketRAG mobile app. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
                     prompt = f"{pocketrag_instruction} | {caption_phrase}"
                     logger.info(f"🎯 Scene {scene['scene_number']}: POCKETRAG DETECTED - REPLACED prompt with iPhone instruction")
                     logger.info(f"🎯 New prompt: {prompt[:150]}...")
