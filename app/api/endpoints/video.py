@@ -8,7 +8,10 @@ from uuid import uuid4
 from app.models.image import Image
 from app.schemas.image import ImageStatus
 import logging
+import json
+import os
 from pydantic import ValidationError
+from typing import Dict, Any
 
 router = APIRouter()
 video_task_processor = VideoTaskProcessor()
@@ -22,8 +25,53 @@ async def get_video_config():
         "languages": settings.languages,
         "art_styles": settings.art_styles,
         "story_style_descriptors": settings.story_style_descriptors,
-        "caption_fonts": settings.caption_fonts
+        "caption_fonts": settings.caption_fonts,
+        "video_settings": settings.video_settings,
+        "product_mention": settings.product_mention,
+        "ai_prompts": settings.ai_prompts if hasattr(settings, 'ai_prompts') else None,
+        "ai_system_prompts": settings.ai_system_prompts if hasattr(settings, 'ai_system_prompts') else None
     }
+
+@router.put("/video/config")
+async def update_video_config(
+    config_update: Dict[str, Any],
+    current_user: dict = Depends(get_current_user)
+):
+    """Update video generation settings (video_settings, product_mention, ai_prompts, ai_system_prompts)"""
+    try:
+        config_path = os.path.join(os.path.dirname(settings.BASE_DIR), 'config.json')
+        
+        # Read existing config
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Update only allowed settings
+        if 'video_settings' in config_update:
+            config['video_settings'] = config_update['video_settings']
+            settings.video_settings = config_update['video_settings']
+        
+        if 'product_mention' in config_update:
+            config['product_mention'] = config_update['product_mention']
+            settings.product_mention = config_update['product_mention']
+        
+        if 'ai_prompts' in config_update:
+            config['ai_prompts'] = config_update['ai_prompts']
+            settings.ai_prompts = config_update['ai_prompts']
+        
+        if 'ai_system_prompts' in config_update:
+            config['ai_system_prompts'] = config_update['ai_system_prompts']
+            settings.ai_system_prompts = config_update['ai_system_prompts']
+        
+        # Write back to config file
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        logger.info(f"Video config updated successfully")
+        return {"status": "success", "message": "Configuration updated"}
+        
+    except Exception as e:
+        logger.error(f"Error updating video config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/video", response_model=VideoResponse)
 async def generate_video(

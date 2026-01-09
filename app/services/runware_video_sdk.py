@@ -18,13 +18,14 @@ async def generate_video_from_image(
     height: int = 864,
     max_retries: int = 3,
     db_session = None,
-    image_id: str = None
+    image_id: str = None,
+    image_uuid: str = None
 ) -> Optional[dict]:
     """
     Generate a video from an image using Runware's bytedance:2@1 model via SDK
     
     Args:
-        image_url: URL of the input image
+        image_url: URL of the input image (fallback if no UUID)
         prompt: Text prompt for video generation
         duration: Video duration in seconds (default: 2)
         fps: Frames per second (default: 24)
@@ -33,16 +34,23 @@ async def generate_video_from_image(
         max_retries: Maximum number of retry attempts (default: 3)
         db_session: Database session for cancellation checks
         image_id: Image ID for cancellation checks
+        image_uuid: Runware image UUID (preferred - URLs expire, UUIDs persist)
     
     Returns:
         URL of generated video or None if failed/cancelled
     """
     
+    # Prefer image_uuid over image_url (URLs expire, UUIDs persist in Runware)
+    image_reference = image_uuid if image_uuid else image_url
+    
     for attempt in range(max_retries):
         runware = None
         try:
             logger.info(f"🎬 Runware SDK: Generating video from image (attempt {attempt + 1}/{max_retries})")
-            logger.info(f"   Image URL: {image_url}")
+            if image_uuid:
+                logger.info(f"   Image UUID: {image_uuid} ✅ (using persistent UUID)")
+            else:
+                logger.info(f"   Image URL: {image_url} ⚠️ (no UUID - URL may expire)")
             logger.info(f"   Prompt: {prompt}")
             logger.info(f"   Duration: {duration}s ⏱️")
             logger.info(f"   FPS: {fps}")
@@ -64,6 +72,7 @@ async def generate_video_from_image(
             await runware.connect()
             
             # Prepare video generation request
+            # Use image_uuid if available (preferred), otherwise fall back to URL
             request_video = IVideoInference(
                 model="bytedance:2@1",
                 positivePrompt=prompt,
@@ -71,7 +80,7 @@ async def generate_video_from_image(
                 fps=fps,
                 width=width,
                 height=height,
-                frameImages=[IFrameImage(inputImage=image_url)],
+                frameImages=[IFrameImage(inputImage=image_reference)],
                 providerSettings=IBytedanceProviderSettings(cameraFixed=True),
                 outputFormat="MP4",
                 uploadEndpoint="runway"
@@ -82,6 +91,7 @@ async def generate_video_from_image(
             logger.info(f"      Duration: {duration}s")
             logger.info(f"      FPS: {fps}")
             logger.info(f"      Total frames: {duration * fps}")
+            logger.info(f"      Image reference: {image_reference[:50]}..." if len(str(image_reference)) > 50 else f"      Image reference: {image_reference}")
             
             # Generate video - SDK handles WebSocket connection internally
             logger.info("   🚀 Sending video generation request...")

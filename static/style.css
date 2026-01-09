@@ -5,7 +5,7 @@
 }
 
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family:Arial, Helvetica, sans-serif;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
     padding: 20px;
@@ -119,6 +119,8 @@ label {
 input[type="text"],
 input[type="email"],
 input[type="password"],
+input[type="number"],
+input[type="url"],
 select,
 textarea {
     padding: 12px;
@@ -127,6 +129,80 @@ textarea {
     font-size: 1em;
     transition: all 0.3s;
     font-family: inherit;
+}
+
+/* Number input styling */
+input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+input[type="number"]:hover {
+    border-color: #c0c0c0;
+}
+
+input[type="number"]:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Custom number input with styled spinner buttons */
+.number-input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+}
+
+.number-input-wrapper input[type="number"] {
+    padding-right: 36px;
+    width: 100%;
+}
+
+.number-input-wrapper .number-buttons {
+    position: absolute;
+    right: 2px;
+    top: 2px;
+    bottom: 2px;
+    display: flex;
+    flex-direction: column;
+    width: 28px;
+    border-radius: 0 6px 6px 0;
+    overflow: hidden;
+}
+
+.number-input-wrapper .number-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f8f9ff 0%, #eef1f8 100%);
+    border: none;
+    border-left: 1px solid #e0e0e0;
+    cursor: pointer;
+    color: #667eea;
+    font-size: 0.7em;
+    font-weight: bold;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.number-input-wrapper .number-btn:first-child {
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.number-input-wrapper .number-btn:hover {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.number-input-wrapper .number-btn:active {
+    transform: scale(0.95);
 }
 
 input:focus,
@@ -710,4 +786,405 @@ textarea {
 
 .status-badge.waiting_for_clips {
     background: #ff9800;
+}
+
+/* Settings Section Styles */
+.settings-section {
+    margin: 30px 0;
+    border: none;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.1);
+}
+
+.settings-section summary {
+    cursor: pointer;
+    padding: 18px 24px;
+    font-weight: 600;
+    font-size: 1.15em;
+    color: #667eea;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid rgba(102, 126, 234, 0.1);
+    transition: all 0.3s ease;
+}
+
+.settings-section summary::-webkit-details-marker {
+    display: none;
+}
+
+.settings-section summary::before {
+    content: '▶';
+    font-size: 0.75em;
+    transition: transform 0.3s ease;
+    color: #764ba2;
+}
+
+.settings-section[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.settings-section summary:hover {
+    background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+    color: #764ba2;
+}
+
+.settings-content {
+    padding: 30px;
+    background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
+}
+
+.settings-intro {
+    color: #666;
+    font-size: 0.95em;
+    margin: 0 0 24px 0;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, #f0f4ff 0%, #e8edff 100%);
+    border-radius: 10px;
+    border-left: 4px solid #667eea;
+    line-height: 1.5;
+}
+
+.settings-group {
+    margin-bottom: 30px;
+    padding: 24px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(102, 126, 234, 0.08);
+    transition: box-shadow 0.3s ease;
+}
+
+.settings-group:hover {
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.12);
+}
+
+.settings-group:last-of-type {
+    margin-bottom: 20px;
+}
+
+.settings-group h4 {
+    color: #667eea;
+    font-size: 1.1em;
+    margin: 0 0 8px 0;
+    padding-bottom: 12px;
+    /* border-bottom: 2px solid transparent; */
+    /* background: linear-gradient(90deg, #667eea, #764ba2) padding-box, linear-gradient(90deg, #667eea, #764ba2) border-box; */
+    background-clip: padding-box, border-box;
+    border-image: linear-gradient(90deg, #667eea, #764ba2) 1;
+    display: block;
+    letter-spacing: 0.3px;
+}
+
+.settings-description {
+    color: #777;
+    font-size: 0.88em;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+}
+
+.settings-group .form-grid {
+    gap: 24px;
+    margin-top: 8px;
+}
+
+.settings-group .form-group {
+    background: #fafbff;
+    padding: 16px;
+    border-radius: 10px;
+    border: 1px solid #eef1f8;
+    transition: border-color 0.2s ease;
+}
+
+.settings-group .form-group:hover {
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+.settings-group .form-group.full-width {
+    margin-top: 16px;
+    margin-bottom: 8px;
+}
+
+.settings-group label {
+    font-size: 0.9em;
+    color: #444;
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.settings-group small {
+    display: block;
+    margin-top: 8px;
+    color: #888;
+    font-size: 0.8em;
+    line-height: 1.4;
+}
+
+/* Color input styling */
+input[type="color"] {
+    padding: 4px;
+    height: 48px;
+    width: 100%;
+    border: 2px solid #e0e4ef;
+    border-radius: 10px;
+    cursor: pointer;
+    background: white;
+    transition: all 0.2s ease;
+}
+
+input[type="color"]:hover {
+    border-color: #667eea;
+}
+
+input[type="color"]:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+}
+
+/* Range input styling */
+input[type="range"] {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #e0e4ef, #d0d4df);
+    outline: none;
+    -webkit-appearance: none;
+    margin: 8px 0;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+    transition: transform 0.2s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+input[type="range"]::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+}
+
+/* Checkbox styling in settings */
+.settings-group input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
+    cursor: pointer;
+    accent-color: #667eea;
+    border-radius: 4px;
+}
+
+.settings-group label:has(input[type="checkbox"]) {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-weight: 500;
+    padding: 8px 0;
+    color: #333;
+}
+
+.settings-group .checkbox-group {
+    background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
+    padding: 16px 20px;
+    border-radius: 10px;
+    border: 1px solid rgba(102, 126, 234, 0.15);
+}
+
+.settings-group .checkbox-group label {
+    padding: 0;
+    font-size: 1em;
+}
+
+.settings-group .checkbox-group small {
+    margin-top: 6px;
+    margin-left: 30px;
+}
+
+/* Settings buttons */
+.settings-content > .button-group {
+    margin-top: 10px;
+    padding-top: 20px;
+    border-top: 1px solid #eef1f8;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.settings-content > .button-group .btn {
+    padding: 12px 24px;
+    font-weight: 600;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+}
+
+.settings-content > .button-group .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.settings-content > .button-group .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.settings-content > .button-group .btn-secondary {
+    background: #f0f4ff;
+    color: #667eea;
+    border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.settings-content > .button-group .btn-secondary:hover {
+    background: #e8edff;
+    border-color: rgba(102, 126, 234, 0.4);
+}
+
+/* Danger Zone Styles */
+.danger-zone {
+    margin-top: 30px;
+    border: 2px solid #dc3545;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #fff5f5 0%, #fff0f0 100%);
+    overflow: hidden;
+}
+
+.danger-zone summary {
+    cursor: pointer;
+    padding: 16px 20px;
+    font-weight: 600;
+    font-size: 1em;
+    color: #dc3545;
+    background: linear-gradient(135deg, #fff 0%, #fff5f5 100%);
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid rgba(220, 53, 69, 0.2);
+    transition: all 0.3s ease;
+}
+
+.danger-zone summary::-webkit-details-marker {
+    display: none;
+}
+
+.danger-zone summary::before {
+    content: '▶';
+    font-size: 0.75em;
+    transition: transform 0.3s ease;
+}
+
+.danger-zone[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.danger-zone summary:hover {
+    background: linear-gradient(135deg, #fff5f5 0%, #ffecec 100%);
+}
+
+.danger-zone-content {
+    padding: 24px;
+    background: white;
+}
+
+.danger-warning {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffeeba 100%);
+    border: 1px solid #ffc107;
+    border-left: 4px solid #dc3545;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 24px;
+    color: #856404;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+.danger-zone .form-group {
+    background: #fafafa;
+    padding: 20px;
+    border-radius: 10px;
+    border: 1px solid #e0e0e0;
+    margin-bottom: 20px;
+}
+
+.danger-zone .form-group label {
+    color: #333;
+    font-weight: 600;
+    font-size: 0.95em;
+    margin-bottom: 12px;
+}
+
+.danger-zone .form-group small {
+    display: block;
+    margin-top: 8px;
+    margin-bottom: 12px;
+    color: #666;
+}
+
+.monospace-textarea {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.85em;
+    line-height: 1.5;
+    background: #f8f9fa;
+    border: 1px solid #ddd;
+    white-space: pre-wrap;
+}
+
+.monospace-textarea:focus {
+    background: white;
+    border-color: #667eea;
+}
+
+.btn-small {
+    padding: 6px 14px !important;
+    font-size: 0.85em !important;
+    flex: 0 !important;
+}
+
+.btn-restore {
+    background: #f8f9fa;
+    color: #666;
+    border: 1px solid #ddd;
+}
+
+.btn-restore:hover {
+    background: #e9ecef;
+    color: #333;
+    border-color: #ccc;
+}
+
+.btn-danger-outline {
+    background: white;
+    color: #dc3545;
+    border: 2px solid #dc3545;
+}
+
+.btn-danger-outline:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.danger-zone .button-group {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: center;
 }

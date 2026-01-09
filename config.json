@@ -1,120 +1,233 @@
 {
-    "story_limit_short": {
-      "char_limit_min": 700,
-      "char_limit_max": 800 
+  "story_limit_short": {
+    "char_limit_min": 700,
+    "char_limit_max": 800
+  },
+  "story_limit_long": {
+    "char_limit_min": 900,
+    "char_limit_max": 1500
+  },
+  "storyboard": {
+    "max_scenes": 38
+  },
+  "openai": {
+    "model": "gpt-4o",
+    "temperature": 0.9
+  },
+  "azure_api_version": "2024-05-01-preview",
+  "replicate_flux_api": {
+    "model": "black-forest-labs/flux-dev",
+    "aspect_ratio": "9:16",
+    "num_inference_steps": 28,
+    "guidance": 3.5,
+    "output_quality": 100
+  },
+  "fal_flux_dev_api": {
+    "model": "fal-ai/flux/dev",
+    "image_size": "portrait_16_9",
+    "num_inference_steps": 28,
+    "guidance_scale": 3.5,
+    "enable_safety_checker": false,
+    "num_images": 1
+  },
+  "fal_flux_schnell_api": {
+    "model": "fal-ai/flux/schnell",
+    "image_size": "portrait_16_9",
+    "guidance_scale": 3.5,
+    "enable_safety_checker": false,
+    "num_images": 1
+  },
+  "runware_flux_api": {
+    "model": "runware:101@1",
+    "width": 576,
+    "height": 1024,
+    "steps": 28
+  },
+  "tts": {
+    "speech_rate": 1.1
+  },
+  "voices": [
+    {
+      "id": "theo",
+      "name": "Theo",
+      "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
     },
-    "story_limit_long": {
-      "char_limit_min": 900,
-      "char_limit_max": 1500 
+    {
+      "id": "dan-wegner",
+      "name": "Dan Wegner",
+      "cartesia_id": "5c8a9524-f70f-43d9-ac2f-f1ee06db3642"
     },
-    "storyboard": {
-      "max_scenes": 38
+    {
+      "id": "cathy",
+      "name": "Cathy",
+      "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
     },
-    "openai": {
-      "model": "gpt-4o",
-      "temperature": 0.9
+    {
+      "id": "tessa",
+      "name": "Tessa",
+      "cartesia_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"
     },
-    "azure_api_version": "2024-05-01-preview",
-    "replicate_flux_api": {
-      "model": "black-forest-labs/flux-dev",
-      "aspect_ratio": "9:16",
-      "num_inference_steps": 28,
-      "guidance": 3.5,
-      "output_quality": 100
+    {
+      "id": "dana",
+      "name": "Dana",
+      "cartesia_id": "95856005-0332-41b0-935f-352e296aa0df"
     },
-    "fal_flux_dev_api": {
-      "model": "fal-ai/flux/dev",
-      "image_size": "portrait_16_9",
-      "num_inference_steps": 28,
-      "guidance_scale": 3.5,
-      "enable_safety_checker": false,
-      "num_images": 1
+    {
+      "id": "spencer",
+      "name": "Spencer Brit",
+      "cartesia_id": "3bf35adc-bcc4-464b-b834-c90c88cf6492"
     },
-    "fal_flux_schnell_api": {
-      "model": "fal-ai/flux/schnell",
-      "image_size": "portrait_16_9",
-      "guidance_scale": 3.5,
-      "enable_safety_checker": false,
-      "num_images": 1
+    {
+      "id": "clyde",
+      "name": "Clyde",
+      "cartesia_id": "98a34ef2-2140-4c28-9c71-663dc4dd7022"
     },
-    "runware_flux_api": {
-      "model": "runware:101@1",
-      "width": 576,
-      "height": 1024,
-      "steps": 28
+    {
+      "id": "hugo",
+      "name": "Hugo",
+      "cartesia_id": "1463a4e1-56a1-4b41-b257-728d56e93605"
     },
-    "tts": {
-      "speech_rate": 1.1
+    {
+      "id": "james",
+      "name": "James",
+      "cartesia_id": "42b39f37-515f-4eee-8546-73e841679c1d"
+    }
+  ],
+  "languages": [
+    "english",
+    "czech",
+    "danish",
+    "dutch",
+    "french",
+    "german",
+    "greek",
+    "hindi",
+    "indonesian",
+    "italian",
+    "chinese",
+    "japanese",
+    "norwegian",
+    "polish",
+    "portuguese",
+    "russian",
+    "spanish",
+    "swedish",
+    "turkish",
+    "ukrainian"
+  ],
+  "art_styles": [
+    "photorealistic",
+    "cinematic",
+    "anime",
+    "comic-book",
+    "pixar-art",
+    "oil-painting",
+    "watercolor",
+    "sketch",
+    "noir",
+    "cyberpunk",
+    "fantasy",
+    "minimalist",
+    "impressionist",
+    "pop-art",
+    "steampunk"
+  ],
+  "story_style_descriptors": [
+    "dark",
+    "mysterious",
+    "uplifting",
+    "dramatic",
+    "whimsical",
+    "melancholic",
+    "suspenseful",
+    "inspirational",
+    "nostalgic",
+    "surreal",
+    "epic",
+    "intimate",
+    "energetic",
+    "calm",
+    "chaotic"
+  ],
+  "caption_fonts": [
+    "BakbakOne",
+    "Bangers",
+    "BebasNeue",
+    "Bungee",
+    "Caveat",
+    "Creepster",
+    "Jua",
+    "Knewave",
+    "LuckiestGuy",
+    "Montserrat",
+    "NotoSans",
+    "OpenSans",
+    "PermanentMarker",
+    "RampartOne",
+    "Ranchers",
+    "TitanOne"
+  ],
+  "video_settings": {
+    "closing_screen": {
+      "primary_logo_url": "https://pub-3b5d5f3810b44090b80bb1015d6070ed.r2.dev/prlogo.png",
+      "secondary_image_url": "https://pub-3b5d5f3810b44090b80bb1015d6070ed.r2.dev/appstore.png",
+      "background_color": [
+        0,
+        0,
+        0
+      ],
+      "duration": 4
     },
-    "voices": [
-      {
-        "id": "theo",
-        "name": "Theo",
-        "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
-      },
-      {
-        "id": "dan-wegner",
-        "name": "Dan Wegner",
-        "cartesia_id": "5c8a9524-f70f-43d9-ac2f-f1ee06db3642"
-      },
-      {
-        "id": "cathy",
-        "name": "Cathy",
-        "cartesia_id": "79f8b5fb-2cc8-479a-80df-29f7a7cf1a3e"
-      },
-      {
-        "id": "tessa",
-        "name": "Tessa",
-        "cartesia_id": "6ccbfb76-1fc6-48f7-b71d-91ac6298247b"
-      },
-      {
-        "id": "dana",
-        "name": "Dana",
-        "cartesia_id": "95856005-0332-41b0-935f-352e296aa0df"
-      },
-      {
-        "id": "spencer",
-        "name": "Spencer Brit",
-        "cartesia_id": "3bf35adc-bcc4-464b-b834-c90c88cf6492"
-      },
-      {
-        "id": "clyde",
-        "name": "Clyde",
-        "cartesia_id": "98a34ef2-2140-4c28-9c71-663dc4dd7022"
-      },
-      {
-        "id": "hugo",
-        "name": "Hugo",
-        "cartesia_id": "1463a4e1-56a1-4b41-b257-728d56e93605"
-      },
-      {
-        "id": "james",
-        "name": "James",
-        "cartesia_id": "42b39f37-515f-4eee-8546-73e841679c1d"
-      }
+    "captions": {
+      "font_size": 80,
+      "max_words_per_phrase": 5,
+      "vertical_position": 0.5,
+      "text_color": "#ffffff",
+      "highlight_color": "#ffff00"
+    },
+    "output": {
+      "width": 1080,
+      "height": 1920,
+      "fps": 20,
+      "zoom_speed": 0.03,
+      "audio_fadeout_duration": 0.3
+    }
+  },
+  "product_mention": {
+    "enabled": true,
+    "keywords": [
+      "PocketRAG"
     ],
-    "languages": [
-      "english", "czech", "danish", "dutch", "french", "german", "greek", 
-      "hindi", "indonesian", "italian", "chinese", "japanese", "norwegian", 
-      "polish", "portuguese", "russian", "spanish", "swedish", "turkish", "ukrainian"
-    ],
-    "art_styles": [
-      "photorealistic", "cinematic", "anime", "comic-book", "pixar-art",
-      "oil-painting", "watercolor", "sketch", "noir", "cyberpunk",
-      "fantasy", "minimalist", "impressionist", "pop-art", "steampunk"
-    ],
-    "story_style_descriptors": [
-      "dark", "mysterious", "uplifting", "dramatic", "whimsical",
-      "melancholic", "suspenseful", "inspirational", "nostalgic", "surreal",
-      "epic", "intimate", "energetic", "calm", "chaotic"
-    ],
-    "caption_fonts": [
-      "BakbakOne", "Bangers", "BebasNeue", "Bungee", "Caveat", "Creepster",
-      "Jua", "Knewave", "LuckiestGuy", "Montserrat", "NotoSans", "OpenSans",
-      "PermanentMarker", "RampartOne", "Ranchers", "TitanOne"
-    ],
-    "use_azure_openai": false,
-    "use_fal_flux": false,
-    "use_fal_flux_dev": false,
-    "use_runware_flux": true
+    "prompt_template": "A business user talking into a modern iPhone (black or white), with the iPhone prominently displayed and clearly visible. If the phone screen is visible, the iPhone screen shows the {{PRODUCT_NAME}} mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable.",
+    "reference_images": [
+      "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
+      "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
+      "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.49.28%E2%80%AFPM.png",
+      "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
+    ]
+  },
+  "ai_prompts": {
+    "video_motion": {
+      "default_prompt": "Subtle camera movement, natural ambient motion",
+      "negative_prompt": "static, frozen, jerky motion, unnatural movement, distorted faces, morphing, glitching"
+    },
+    "image_generation": {
+      "negative_prompt": "blurry, low quality, distorted, deformed, ugly, bad anatomy, bad proportions, duplicate, watermark, text, logo"
+    }
+  },
+  "ai_system_prompts": {
+    "character_generation": {
+      "system": "You are an expert at analyzing stories and creating detailed, vivid character descriptions, focusing on overall appearance. Your skills include:\n1. Extracting subtle character details from narrative context\n2. Creating consistent and believable descriptions of characters\n3. Focusing on permanent features and distinguishing attributes\n4. Adapting descriptions to fit the story's genre and tone\n5. Balancing physical features with character essence\n6. Translating character personalities into comprehensive physical attributes\n7. Accurately estimating and describing characters' attributes based on story context\n8. Avoiding any mention of clothing or attire in character descriptions"
+    },
+    "video_prompt_generation": {
+      "system": "You are an expert in video generation. You specialize in creating SIMPLE, MINIMAL motion prompts.\n\nCRITICAL RULES:\n1. Keep motion descriptions SHORT and GENERAL\n2. Use broad terms like \"gentle movement\" instead of specific detailed actions\n3. Avoid describing complex or specific human movements\n4. Prioritize subtlety over detail\n5. When in doubt, use less description\n\nYou create simple, understated motion descriptions that avoid unintended distortions."
+    },
+    "storyboard_generation": {
+      "system": "You are a highly skilled storyboard artist with expertise in visual storytelling across all genres. You excel at:\n1. Creating vivid, cinematic scene descriptions for any type of narrative\n2. Adapting to various story styles and art styles while maintaining the original narrative's essence\n3. Incorporating cinematographic techniques into your descriptions\n4. Faithfully representing the original story using exact quotes for subtitles\n5. Ensuring visual narrative accurately captures key moments, emotions, and atmosphere\n6. Describing characters and settings in detail with consistency\n7. Specifying appropriate camera angles, compositions, shot sizes, and lighting\n8. Maintaining logical consistency between scene content and technical descriptions\n9. Applying creative visual guidance while preserving story integrity\n10. ALWAYS ensuring every scene description explicitly reflects the specified art style\n11. Describing all visual elements in ways that clearly convey the artistic treatment\n\nCRITICAL: You NEVER use the words \"animate\", \"animated\", \"animation\", \"stylized\", \"illustration\", or \"illustrated\" in your descriptions.\nInstead, you use terms like \"rendered\", \"depicted\", \"portrayed\", or \"designed\".\nThe art style specification handles the visual treatment - you focus on describing what is seen in that style.\n\nYour storyboards effectively bridge the gap between written narrative and visual representation, working seamlessly with any story type, genre, or art style."
+    }
+  },
+  "use_azure_openai": false,
+  "use_fal_flux": false,
+  "use_fal_flux_dev": false,
+  "use_runware_flux": true
 }

@@ -47,17 +47,17 @@ class StoryGenerator:
             - Describe the character's body type, including height and build.
             - For hair style, describe the color, length, style, and texture.
             - For accessories, include only non-clothing items such as jewelry, glasses and watches that are consistently associated with the character.
-            - Aim for concise but descriptive entries for each attribute.
+            - KEEP IT BRIEF: Each attribute description should be 15-25 words maximum.
             - Focus on permanent or long-term features, not on changeable expressions or temporary states.
             - Do not include any descriptions of clothing or attire.
 
             Please provide only the JSON array, without any additional text.
             """
 
-        messages = [
-            {
-                "role": "system",
-                "content": """You are an expert at analyzing stories and creating detailed, vivid character descriptions, focusing on overall appearance. Your skills include:
+        # Get configurable system prompt or use default
+        ai_system_prompts = self.config.ai_system_prompts if hasattr(self.config, 'ai_system_prompts') and self.config.ai_system_prompts else {}
+        character_config = ai_system_prompts.get('character_generation', {})
+        system_prompt = character_config.get('system', """You are an expert at analyzing stories and creating detailed, vivid character descriptions, focusing on overall appearance. Your skills include:
                     1. Extracting subtle character details from narrative context
                     2. Creating consistent and believable descriptions of characters
                     3. Focusing on permanent features and distinguishing attributes
@@ -65,7 +65,12 @@ class StoryGenerator:
                     5. Balancing physical features with character essence
                     6. Translating character personalities into comprehensive physical attributes
                     7. Accurately estimating and describing characters' attributes based on story context
-                    8. Avoiding any mention of clothing or attire in character descriptions"""
+                    8. Avoiding any mention of clothing or attire in character descriptions""")
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
             }, 
             {"role": "user", "content": prompt},
         ]
@@ -124,10 +129,10 @@ Generate a complete Seadance 1.0 API request in JSON format with these fields:
 
 Return ONLY the JSON object, no other text."""
 
-        messages = [
-            {
-                "role": "system",
-                "content": """You are an expert in video generation. You specialize in creating SIMPLE, MINIMAL motion prompts.
+        # Get configurable system prompt or use default
+        ai_system_prompts = self.config.ai_system_prompts if hasattr(self.config, 'ai_system_prompts') and self.config.ai_system_prompts else {}
+        video_prompt_config = ai_system_prompts.get('video_prompt_generation', {})
+        system_prompt = video_prompt_config.get('system', """You are an expert in video generation. You specialize in creating SIMPLE, MINIMAL motion prompts.
                 
                 CRITICAL RULES:
                 1. Keep motion descriptions SHORT and GENERAL
@@ -136,7 +141,12 @@ Return ONLY the JSON object, no other text."""
                 4. Prioritize subtlety over detail
                 5. When in doubt, use less description
                 
-                You create simple, understated motion descriptions that avoid unintended distortions."""
+                You create simple, understated motion descriptions that avoid unintended distortions.""")
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
             },
             {"role": "user", "content": prompt},
         ]
@@ -162,9 +172,16 @@ Return ONLY the JSON object, no other text."""
     
     def _create_default_video_request(self) -> Dict[str, Any]:
         """Create a default video generation request when AI generation fails"""
+        # Get configurable prompts from settings
+        ai_prompts = self.config.ai_prompts if hasattr(self.config, 'ai_prompts') and self.config.ai_prompts else {}
+        video_motion = ai_prompts.get('video_motion', {})
+        
+        default_prompt = video_motion.get('default_prompt', 'Subtle camera movement, natural ambient motion')
+        negative_prompt = video_motion.get('negative_prompt', 'static, frozen, jerky motion, unnatural movement')
+        
         return {
-            "prompt": "Subtle camera movement, natural ambient motion",
-            "negative_prompt": "static, frozen, jerky motion, unnatural movement",
+            "prompt": default_prompt,
+            "negative_prompt": negative_prompt,
             "num_inference_steps": 50,
             "guidance_scale": 7.5,
             "duration": 5,
@@ -272,10 +289,10 @@ Return ONLY the JSON object, no other text."""
 
         {story}"""
 
-        messages = [
-            {
-                "role": "system",
-                "content": f'''You are a highly skilled storyboard artist with expertise in visual storytelling across all genres. You excel at:
+        # Get configurable system prompt or use default
+        ai_system_prompts = self.config.ai_system_prompts if hasattr(self.config, 'ai_system_prompts') and self.config.ai_system_prompts else {}
+        storyboard_config = ai_system_prompts.get('storyboard_generation', {})
+        base_system_prompt = storyboard_config.get('system', '''You are a highly skilled storyboard artist with expertise in visual storytelling across all genres. You excel at:
                     1. Creating vivid, cinematic scene descriptions for any type of narrative
                     2. Adapting to various story styles and art styles while maintaining the original narrative's essence
                     3. Incorporating cinematographic techniques into your descriptions
@@ -284,16 +301,26 @@ Return ONLY the JSON object, no other text."""
                     6. Describing characters and settings in detail with consistency
                     7. Specifying appropriate camera angles, compositions, shot sizes, and lighting
                     8. Maintaining logical consistency between scene content and technical descriptions
-                    {"9. Applying creative visual guidance while preserving story integrity" if tweak_prompt else ""}
-                    10. ALWAYS ensuring every scene description explicitly reflects the {art_style if art_style else 'photorealistic'} art style
+                    9. Applying creative visual guidance while preserving story integrity
+                    10. ALWAYS ensuring every scene description explicitly reflects the specified art style
                     11. Describing all visual elements in ways that clearly convey the artistic treatment
 
                     CRITICAL: You NEVER use the words "animate", "animated", "animation", "stylized", "illustration", or "illustrated" in your descriptions.
                     Instead, you use terms like "rendered", "depicted", "portrayed", or "designed".
-                    The art style specification handles the visual treatment - you focus on describing what is seen in that {art_style if art_style else 'photorealistic'} style.
+                    The art style specification handles the visual treatment - you focus on describing what is seen in that style.
 
                     Your storyboards effectively bridge the gap between written narrative and visual representation, 
-                    working seamlessly with any story type, genre, or art style.'''
+                    working seamlessly with any story type, genre, or art style.''')
+        
+        # Append dynamic context about art style
+        system_prompt = f'''{base_system_prompt}
+        
+        For this request, ensure all descriptions reflect the {art_style if art_style else 'photorealistic'} art style.'''
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
             },
             {"role": "user", "content": prompt},
         ]

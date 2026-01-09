@@ -287,6 +287,9 @@ class VideoTaskProcessor:
                 
                 image_url = urls[0]
                 
+                # Get Runware image UUID if available (preferred - URLs expire!)
+                image_uuid = getattr(scene, 'runware_image_uuid', None)
+                
                 # Get duration from audio (fallback to 2 seconds if not available)
                 duration = scene.audio_duration or 2
                 logger.info(f"  📏 Scene duration: {duration}s")
@@ -321,7 +324,9 @@ class VideoTaskProcessor:
                     await update_session.commit()
                 
                 logger.info(f"  🎬 Generating {scene_duration}s video clip for scene {scene.scene_number}")
-                logger.debug(f"  Image: {image_url}")
+                logger.debug(f"  Image URL: {image_url}")
+                if image_uuid:
+                    logger.debug(f"  Image UUID: {image_uuid} (preferred)")
                 logger.debug(f"  Prompt: {prompt[:100]}...")
                 
                 # Generate video clip with actual scene duration
@@ -332,7 +337,8 @@ class VideoTaskProcessor:
                         duration=scene_duration,
                         fps=24,
                         db_session=check_session,
-                        image_id=scene.id
+                        image_id=scene.id,
+                        image_uuid=image_uuid  # Pass UUID if available
                     )
                 
                 # Extract URL and cost from result

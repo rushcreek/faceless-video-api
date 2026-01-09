@@ -24,6 +24,9 @@ class Image(Base):
     error_message = Column(Text)
     status = Column(Enum('queued', 'processing', 'completed', 'failed', name='image_status'), nullable=False, index=True)
     
+    # Runware image identifier - needed for video generation (URLs expire, UUIDs persist)
+    runware_image_uuid = Column(String, nullable=True, index=True)  # Runware's internal image UUID
+    
     # Video clip fields (for animated clips from static images)
     video_clip_task_uuid = Column(String, nullable=True, index=True)  # Runware task UUID
     video_clip_url = Column(String, nullable=True)  # Generated video clip URL

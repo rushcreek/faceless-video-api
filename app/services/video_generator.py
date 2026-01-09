@@ -37,11 +37,22 @@ class VideoGenerator:
         self.font_path = os.path.join(settings.BASE_DIR, "resources/fonts")
         self.assets_path = os.path.join(os.path.dirname(settings.BASE_DIR), "assets")
     
-    def has_pocketrag_mention(self, text: str) -> bool:
-        """Check if text mentions PocketRAG in any form"""
+    def has_product_mention(self, text: str) -> bool:
+        """Check if text mentions the configured product in any form"""
+        if not text:
+            return False
         text_lower = text.lower()
-        pocketrag_variations = ['pocketrag', 'pocket rag', 'pocket-rag']
-        return any(variation in text_lower for variation in pocketrag_variations)
+        # Get product keywords from config
+        product_config = settings.product_mention if hasattr(settings, 'product_mention') and settings.product_mention else {}
+        if not product_config.get('enabled', True):
+            return False
+        keywords = product_config.get('keywords', ['pocketrag', 'pocket rag', 'pocket-rag'])
+        return any(keyword.lower() in text_lower for keyword in keywords)
+    
+    # Keep old method name as alias for backward compatibility
+    def has_pocketrag_mention(self, text: str) -> bool:
+        """Alias for has_product_mention for backward compatibility"""
+        return self.has_product_mention(text)
     
     def align_script_with_transcription(self, original_text, transcription_words, audio_duration=None):
         """
@@ -194,60 +205,136 @@ class VideoGenerator:
             logger.error(f"Error transcribing audio: {str(e)}")
             return None
     
-    def create_closing_screen(self, duration=4):
+    def create_closing_screen(self, duration=None):
         """Create a closing screen with two logos on black background with fade-in effect"""
         try:
-            # Load the logo images
-            prlogo_path = os.path.join(self.assets_path, "prlogo.png")
-            appstore_path = os.path.join(self.assets_path, "appstore.png")
+            # Get settings from config
+            closing_config = settings.video_settings.get('closing_screen', {}) if settings.video_settings else {}
             
-            # Open images with PIL to get dimensions
-            prlogo_img = PILImage.open(prlogo_path)
-            appstore_img = PILImage.open(appstore_path)
+            # Use config values with defaults
+            if duration is None:
+                duration = closing_config.get('duration', 4)
+            bg_color = tuple(closing_config.get('background_color', [0, 0, 0]))
+            primary_logo_url = closing_config.get('primary_logo_url', '')
+            secondary_image_url = closing_config.get('secondary_image_url', '')
             
-            # Video dimensions (9:16 aspect ratio)
-            video_width = 1080
-            video_height = 1920
+            # Video dimensions from config
+            output_config = settings.video_settings.get('output', {}) if settings.video_settings else {}
+            video_width = output_config.get('width', 1080)
+            video_height = output_config.get('height', 1920)
+            
+            # Determine logo sources (URL or local file)
+            import tempfile
+            import requests
+            
+            temp_files = []
+            
+            # Primary logo
+            if primary_logo_url and primary_logo_url.startswith('http'):
+                # Download from URL
+                try:
+                    response = requests.get(primary_logo_url, timeout=10)
+                    response.raise_for_status()
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                    temp_file.write(response.content)
+                    temp_file.close()
+                    prlogo_path = temp_file.name
+                    temp_files.append(prlogo_path)
+                except Exception as e:
+                    logger.warning(f"Failed to download primary logo from URL: {e}, falling back to local")
+                    prlogo_path = os.path.join(self.assets_path, "prlogo.png")
+            else:
+                prlogo_path = os.path.join(self.assets_path, "prlogo.png")
+            
+            # Secondary image
+            if secondary_image_url and secondary_image_url.startswith('http'):
+                # Download from URL
+                try:
+                    response = requests.get(secondary_image_url, timeout=10)
+                    response.raise_for_status()
+                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                    temp_file.write(response.content)
+                    temp_file.close()
+                    appstore_path = temp_file.name
+                    temp_files.append(appstore_path)
+                except Exception as e:
+                    logger.warning(f"Failed to download secondary image from URL: {e}, falling back to local")
+                    appstore_path = os.path.join(self.assets_path, "appstore.png")
+            else:
+                appstore_path = os.path.join(self.assets_path, "appstore.png")
+            
+            # Check if files exist
+            has_primary = os.path.exists(prlogo_path)
+            has_secondary = os.path.exists(appstore_path)
+            
+            if not has_primary and not has_secondary:
+                logger.warning("No logo images available for closing screen")
+                # Clean up temp files
+                for f in temp_files:
+                    try:
+                        os.unlink(f)
+                    except:
+                        pass
+                return None
+            
+            # Create black background
+            background = ColorClip(size=(video_width, video_height), color=bg_color, duration=duration)
             
             # Calculate scaling to fit nicely with padding
             # Leave 20% padding on each side (60% of width for logos)
             max_logo_width = int(video_width * 0.6)
             
-            # Scale prlogo
-            prlogo_aspect = prlogo_img.width / prlogo_img.height
-            prlogo_width = max_logo_width
-            prlogo_height = int(prlogo_width / prlogo_aspect)
-            
-            # Scale appstore (usually wider, keep it proportional)
-            appstore_aspect = appstore_img.width / appstore_img.height
-            appstore_width = max_logo_width
-            appstore_height = int(appstore_width / appstore_aspect)
-            
-            # Create black background
-            background = ColorClip(size=(video_width, video_height), color=(0, 0, 0), duration=duration)
-            
-            # Vertical spacing between logos
+            clips_to_composite = [background]
             spacing = 60
             
-            # Calculate vertical positioning to center both logos together
-            total_height = prlogo_height + spacing + appstore_height
+            # Handle primary logo
+            if has_primary:
+                prlogo_img = PILImage.open(prlogo_path)
+                prlogo_aspect = prlogo_img.width / prlogo_img.height
+                prlogo_width = max_logo_width
+                prlogo_height = int(prlogo_width / prlogo_aspect)
+            else:
+                prlogo_height = 0
+            
+            # Handle secondary image  
+            if has_secondary:
+                appstore_img = PILImage.open(appstore_path)
+                appstore_aspect = appstore_img.width / appstore_img.height
+                appstore_width = max_logo_width
+                appstore_height = int(appstore_width / appstore_aspect)
+            else:
+                appstore_height = 0
+            
+            # Calculate vertical positioning to center logos together
+            if has_primary and has_secondary:
+                total_height = prlogo_height + spacing + appstore_height
+            elif has_primary:
+                total_height = prlogo_height
+            else:
+                total_height = appstore_height
+            
             start_y = (video_height - total_height) // 2
             
             # Create logo clips with transparency support
-            prlogo_clip = (ImageClip(prlogo_path, transparent=True)
-                          .resize(width=prlogo_width)
-                          .set_duration(duration)
-                          .set_position(('center', start_y))
-                          .fadein(0.5))
+            if has_primary:
+                prlogo_clip = (ImageClip(prlogo_path, transparent=True)
+                              .resize(width=prlogo_width)
+                              .set_duration(duration)
+                              .set_position(('center', start_y))
+                              .fadein(0.5))
+                clips_to_composite.append(prlogo_clip)
             
-            appstore_clip = (ImageClip(appstore_path, transparent=True)
-                            .resize(width=appstore_width)
-                            .set_duration(duration)
-                            .set_position(('center', start_y + prlogo_height + spacing))
-                            .fadein(0.5))
+            if has_secondary:
+                secondary_y = start_y + (prlogo_height + spacing if has_primary else 0)
+                appstore_clip = (ImageClip(appstore_path, transparent=True)
+                                .resize(width=appstore_width)
+                                .set_duration(duration)
+                                .set_position(('center', secondary_y))
+                                .fadein(0.5))
+                clips_to_composite.append(appstore_clip)
             
             # Composite all elements
-            closing_screen = CompositeVideoClip([background, prlogo_clip, appstore_clip])
+            closing_screen = CompositeVideoClip(clips_to_composite)
             
             # Add silent audio to prevent audio glitches when concatenating
             # Create silent audio clip matching the duration
@@ -256,6 +343,13 @@ class VideoGenerator:
             
             silent_audio = AudioClip(make_frame, duration=duration, fps=44100)
             closing_screen = closing_screen.set_audio(silent_audio)
+            
+            # Clean up temp files (they're loaded into memory now)
+            for f in temp_files:
+                try:
+                    os.unlink(f)
+                except:
+                    pass
             
             return closing_screen
             
@@ -363,15 +457,19 @@ class VideoGenerator:
             video.close()
             return
         
-        # Caption settings
-        FONT_SIZE = 80
-        MAX_WORDS_PER_PHRASE = 5  # Show up to 5 words at a time
+        # Caption settings from config
+        caption_config = settings.video_settings.get('captions', {}) if settings.video_settings else {}
+        FONT_SIZE = caption_config.get('font_size', 80)
+        MAX_WORDS_PER_PHRASE = caption_config.get('max_words_per_phrase', 5)
+        TEXT_COLOR = caption_config.get('text_color', 'white')
+        HIGHLIGHT_COLOR = caption_config.get('highlight_color', 'yellow')
+        VERTICAL_POSITION = caption_config.get('vertical_position', 0.75)
         WORD_SPACING = 18  # Space between words
         
-        # Position captions in lower third (more common for video captions)
-        caption_y = int(video.h * 0.75)
+        # Position captions based on vertical position setting
+        caption_y = int(video.h * VERTICAL_POSITION)
         
-        logger.info(f"Caption settings: font_size={FONT_SIZE}, y={caption_y}, max_words={MAX_WORDS_PER_PHRASE}")
+        logger.info(f"Caption settings: font_size={FONT_SIZE}, y={caption_y}, max_words={MAX_WORDS_PER_PHRASE}, text_color={TEXT_COLOR}, highlight={HIGHLIGHT_COLOR}")
         update_progress(0.92, "Adding captions: Measuring words...")
         
         # Pre-measure word widths
@@ -379,7 +477,7 @@ class VideoGenerator:
         for word in all_words:
             if word['text'] not in word_widths:
                 try:
-                    test_clip = TextClip(word['text'], fontsize=FONT_SIZE, font=font_path, color='white')
+                    test_clip = TextClip(word['text'], fontsize=FONT_SIZE, font=font_path, color=TEXT_COLOR)
                     word_widths[word['text']] = test_clip.w
                     test_clip.close()
                 except:
@@ -472,22 +570,22 @@ class VideoGenerator:
                     shadow3 = shadow3.set_start(phrase_start).set_duration(phrase_duration)
                     caption_clips.append(shadow3)
                     
-                    # === WHITE BASE TEXT (visible for entire phrase duration) ===
-                    white_clip = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='white')
-                    white_clip = white_clip.set_position((word_x, caption_y))
-                    white_clip = white_clip.set_start(phrase_start).set_duration(phrase_duration)
-                    caption_clips.append(white_clip)
+                    # === BASE TEXT (visible for entire phrase duration) ===
+                    base_clip = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color=TEXT_COLOR)
+                    base_clip = base_clip.set_position((word_x, caption_y))
+                    base_clip = base_clip.set_start(phrase_start).set_duration(phrase_duration)
+                    caption_clips.append(base_clip)
                     
-                    # === YELLOW HIGHLIGHT (only when this word is being spoken) ===
+                    # === HIGHLIGHT (only when this word is being spoken) ===
                     word_start = word['start']
                     word_end = word['end']
                     highlight_duration = word_end - word_start
                     
                     if highlight_duration > 0:
-                        yellow_clip = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color='yellow')
-                        yellow_clip = yellow_clip.set_position((word_x, caption_y))
-                        yellow_clip = yellow_clip.set_start(word_start).set_duration(highlight_duration)
-                        caption_clips.append(yellow_clip)
+                        highlight_clip = TextClip(word_text, fontsize=FONT_SIZE, font=font_path, color=HIGHLIGHT_COLOR)
+                        highlight_clip = highlight_clip.set_position((word_x, caption_y))
+                        highlight_clip = highlight_clip.set_start(word_start).set_duration(highlight_duration)
+                        caption_clips.append(highlight_clip)
                     
                 except Exception as e:
                     logger.error(f"Error creating clip for word '{word_text}': {e}")
@@ -667,6 +765,7 @@ class VideoGenerator:
                     image_url = result.get('url')
                     scene['image'] = image_url
                     scene['image_generation_cost'] = result.get('cost')
+                    scene['runware_image_uuid'] = result.get('uuid')  # Store UUID for video generation
                     logger.info(f"Generated image for scene {scene['scene_number']}: {image_url}")
                 else:
                     scene['image'] = None
@@ -703,6 +802,7 @@ class VideoGenerator:
                         "video_generation_request": scene.get('video_generation_request'),
                         "audio_duration": scene.get('audio_duration'),
                         "image_generation_cost": scene.get('image_generation_cost'),
+                        "runware_image_uuid": scene.get('runware_image_uuid'),  # UUID for video generation
                         "error_message": scene.get('error_message', '')
                     }
                     await Image.create(**image_data)

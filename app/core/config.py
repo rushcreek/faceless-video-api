@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     use_fal_flux_dev: bool | None = None
     use_runware_flux: bool | None = None
     use_azure_openai: bool | None = None
+    video_settings: dict | None = None
+    product_mention: dict | None = None
+    ai_prompts: dict | None = None
+    ai_system_prompts: dict | None = None
 
     R2_ENDPOINT: str | None = None
     R2_PUBLIC_ENDPOINT: str | None = None
@@ -68,7 +72,7 @@ class Settings(BaseSettings):
     def set_story_dir(cls, v, info):
         return v or os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), "data")
 
-    @field_validator('story_limit_short', 'story_limit_long', 'storyboard', 'openai', 'fal_flux_dev_api', 'fal_flux_schnell_api', 'replicate_flux_api', 'runware_flux_api', 'tts', 'voices', 'languages', 'art_styles', 'story_style_descriptors', 'caption_fonts', 'use_fal_flux', 'use_fal_flux_dev', 'use_runware_flux', 'use_azure_openai', 'azure_api_version', mode='before')
+    @field_validator('story_limit_short', 'story_limit_long', 'storyboard', 'openai', 'fal_flux_dev_api', 'fal_flux_schnell_api', 'replicate_flux_api', 'runware_flux_api', 'tts', 'voices', 'languages', 'art_styles', 'story_style_descriptors', 'caption_fonts', 'use_fal_flux', 'use_fal_flux_dev', 'use_runware_flux', 'use_azure_openai', 'azure_api_version', 'video_settings', 'product_mention', 'ai_prompts', 'ai_system_prompts', mode='before')
     def load_json_config(cls, v, info):
         if v is None or (isinstance(v, (str, dict)) and not v):
             config_path = os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), 'config.json')

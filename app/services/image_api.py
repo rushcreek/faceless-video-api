@@ -116,6 +116,16 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, reference_image
                 elif isinstance(images[0], dict):
                     image_url = images[0].get('imageURL') or images[0].get('image_url') or images[0].get('url')
                 
+                # Extract imageUUID from response (needed for video generation - URLs expire!)
+                image_uuid = None
+                if hasattr(images[0], 'imageUUID'):
+                    image_uuid = images[0].imageUUID
+                elif isinstance(images[0], dict):
+                    image_uuid = images[0].get('imageUUID')
+                
+                if image_uuid:
+                    logger.info(f"🔑 PocketRAG image UUID: {image_uuid}")
+                
                 # Extract cost
                 cost = None
                 if hasattr(images[0], 'cost'):
@@ -130,7 +140,7 @@ async def runware_pocketrag_image_api(task_id: str, prompt: str, reference_image
                 
                 if image_url:
                     logger.info(f"✅ PocketRAG image generated successfully: {image_url}")
-                    return {"url": image_url, "cost": cost}
+                    return {"url": image_url, "cost": cost, "uuid": image_uuid}
                 else:
                     logger.error(f"❌ Could not extract URL from PocketRAG image response")
                     return None
@@ -209,6 +219,16 @@ async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: 
                         elif isinstance(images[0], dict):
                             image_url = images[0].get('imageURL') or images[0].get('image_url') or images[0].get('url')
                         
+                        # Extract imageUUID from response (needed for video generation - URLs expire!)
+                        image_uuid = None
+                        if hasattr(images[0], 'imageUUID'):
+                            image_uuid = images[0].imageUUID
+                        elif isinstance(images[0], dict):
+                            image_uuid = images[0].get('imageUUID')
+                        
+                        if image_uuid:
+                            logger.info(f"🔑 Image {index+1} UUID: {image_uuid}")
+                        
                         # Extract cost from response (similar to video SDK)
                         cost = None
                         if hasattr(images[0], 'cost'):
@@ -223,7 +243,7 @@ async def runware_flux_batch_api(task_id: str, prompts: list[str], max_retries: 
                         
                         if image_url:
                             logger.info(f"✅ Parallel image {index+1}/{len(prompts)} completed: {image_url}")
-                            return {"url": image_url, "cost": cost}
+                            return {"url": image_url, "cost": cost, "uuid": image_uuid}
                         else:
                             logger.error(f"❌ Could not extract URL from image {index+1}")
                             return None

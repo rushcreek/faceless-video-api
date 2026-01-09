@@ -81,6 +81,9 @@ async def process_video_clips_background(task_id: str, duration: int = 2, fps: i
                     
                     image_url = urls[0]
                     
+                    # Get Runware image UUID if available (preferred - URLs expire!)
+                    image_uuid = getattr(scene, 'runware_image_uuid', None)
+                    
                     # Get video generation request
                     video_req = scene.video_generation_request
                     if not video_req or 'prompt' not in video_req:
@@ -100,7 +103,9 @@ async def process_video_clips_background(task_id: str, duration: int = 2, fps: i
                         await update_session.commit()
                     
                     logger.info(f"Generating video clip for scene {scene.id} (position {idx})")
-                    logger.debug(f"Image: {image_url}")
+                    logger.debug(f"Image URL: {image_url}")
+                    if image_uuid:
+                        logger.debug(f"Image UUID: {image_uuid} (preferred)")
                     logger.debug(f"Prompt: {prompt[:100]}...")
                     
                     # Generate video clip with cancellation support
@@ -111,7 +116,8 @@ async def process_video_clips_background(task_id: str, duration: int = 2, fps: i
                             duration=duration,
                             fps=fps,
                             db_session=check_session,
-                            image_id=scene.id
+                            image_id=scene.id,
+                            image_uuid=image_uuid  # Pass UUID if available
                         )
                     
                     # Check for cancellation one more time after generation
@@ -250,6 +256,9 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         # Create basic animation prompt from subtitles
                         prompt = f"Gentle camera movement, subtle zoom, {scene.subtitles[:100]}"
                     
+                    # Get Runware image UUID if available (preferred - URLs expire!)
+                    image_uuid = getattr(scene, 'runware_image_uuid', None)
+                    
                     # Generate unique task UUID for this clip
                     clip_task_uuid = str(uuid_lib.uuid4())
                     
@@ -261,7 +270,9 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                         await update_session.commit()
                     
                     logger.info(f"  🎬 Generating {scene_duration}s video clip for scene {scene.scene_number}")
-                    logger.debug(f"  Image: {image_url}")
+                    logger.debug(f"  Image URL: {image_url}")
+                    if image_uuid:
+                        logger.debug(f"  Image UUID: {image_uuid} (preferred)")
                     logger.debug(f"  Prompt: {prompt[:100]}...")
                     
                     # Generate video clip with actual scene duration
@@ -272,7 +283,8 @@ async def process_video_clips_background_with_durations(task_id: str, fps: int =
                             duration=scene_duration,  # Use actual duration!
                             fps=fps,
                             db_session=check_session,
-                            image_id=scene.id
+                            image_id=scene.id,
+                            image_uuid=image_uuid  # Pass UUID if available
                         )
                     
                     # Extract URL and cost from result

@@ -18,11 +18,39 @@ class ImageGenerator:
     def __init__(self, image_generator_func: Callable[[str], Optional[str]] = None):
         self.image_generator_func = image_generator_func
     
-    def has_pocketrag_mention(self, text: str) -> bool:
-        """Check if text mentions PocketRAG in any form"""
+    def has_product_mention(self, text: str) -> bool:
+        """Check if text mentions the configured product in any form"""
+        if not text:
+            return False
         text_lower = text.lower()
-        pocketrag_variations = ['pocketrag', 'pocket rag', 'pocket-rag']
-        return any(variation in text_lower for variation in pocketrag_variations)
+        # Get product keywords from config
+        product_config = settings.product_mention if hasattr(settings, 'product_mention') and settings.product_mention else {}
+        if not product_config.get('enabled', True):
+            return False
+        keywords = product_config.get('keywords', ['pocketrag', 'pocket rag', 'pocket-rag'])
+        return any(keyword.lower() in text_lower for keyword in keywords)
+    
+    # Keep old method name as alias for backward compatibility
+    def has_pocketrag_mention(self, text: str) -> bool:
+        """Alias for has_product_mention for backward compatibility"""
+        return self.has_product_mention(text)
+    
+    def get_product_prompt_template(self) -> str:
+        """Get the product-specific prompt template from config"""
+        product_config = settings.product_mention if hasattr(settings, 'product_mention') and settings.product_mention else {}
+        default_template = "A business user talking into a modern iPhone (black or white), with the iPhone prominently displayed and clearly visible. If the phone screen is visible, the iPhone screen shows the {{PRODUCT_NAME}} mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+        return product_config.get('prompt_template', default_template)
+    
+    def get_product_reference_images(self) -> list:
+        """Get the product reference images from config"""
+        product_config = settings.product_mention if hasattr(settings, 'product_mention') and settings.product_mention else {}
+        default_images = [
+            "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
+            "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
+            "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.49.28%E2%80%AFPM.png",
+            "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
+        ]
+        return product_config.get('reference_images', default_images)
     
     def prepare_prompt(
         self,
@@ -37,12 +65,12 @@ class ImageGenerator:
         camera_info = f"Camera: {storyboard['camera']['angle']}, {storyboard['camera']['composition_type']}, {storyboard['camera']['shot_size']}"
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
-        # Check if PocketRAG is mentioned - if so, REPLACE the prompt entirely
-        if self.has_pocketrag_mention(prompt):
-            # Replace entire description with PocketRAG-specific prompt
-            pocketrag_instruction = "A business user talking into a modern iPhone (black or white), with the iPhone prominently displayed and clearly visible. if the phone screen is visible, the iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
-            enhanced_prompt = f"{pocketrag_instruction} | {style} | {camera_info} | {lighting_info}"
-            logger.info(f"🎯 PocketRAG detected - REPLACING prompt with iPhone-specific description")
+        # Check if product is mentioned - if so, REPLACE the prompt entirely
+        if self.has_product_mention(prompt):
+            # Replace entire description with product-specific prompt from config
+            product_instruction = self.get_product_prompt_template()
+            enhanced_prompt = f"{product_instruction} | {style} | {camera_info} | {lighting_info}"
+            logger.info(f"🎯 Product mention detected - REPLACING prompt with product-specific description")
         else:
             enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
         
@@ -93,12 +121,12 @@ class ImageGenerator:
         camera_info = f"Camera: {storyboard['camera']['angle']}, {storyboard['camera']['composition_type']}, {storyboard['camera']['shot_size']}"
         lighting_info = f"Lighting: {storyboard['lighting']}"
         
-        # Check if PocketRAG is mentioned - if so, REPLACE the prompt entirely
-        if self.has_pocketrag_mention(prompt):
-            # Replace entire description with PocketRAG-specific prompt
-            pocketrag_instruction = "An over-the-shoulder shot of a person's hands holding a modern iPhone (black or white), with the iPhone screen prominently displayed and clearly visible facing the camera. The iPhone screen shows the PocketRAG mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
-            enhanced_prompt = f"{pocketrag_instruction} | {style} | {camera_info} | {lighting_info}"
-            logger.info(f"🎯 PocketRAG detected in scene - REPLACING with iPhone-specific prompt")
+        # Check if product is mentioned - if so, REPLACE the prompt entirely
+        if self.has_product_mention(prompt):
+            # Replace entire description with product-specific prompt from config
+            product_instruction = self.get_product_prompt_template()
+            enhanced_prompt = f"{product_instruction} | {style} | {camera_info} | {lighting_info}"
+            logger.info(f"🎯 Product mention detected in scene - REPLACING with product-specific prompt")
         else:
             enhanced_prompt = f"{prompt} | {style} | {camera_info} | {lighting_info}"
         
@@ -155,8 +183,8 @@ class ImageGenerator:
         if settings.use_runware_flux:
             logger.info(f"Using Runware PARALLEL batch API for {total_images} images")
             
-            # Separate PocketRAG scenes from regular scenes
-            pocketrag_scenes = []
+            # Separate product scenes from regular scenes
+            product_scenes = []
             regular_scenes = []
             enhanced_prompts = []
             
@@ -164,24 +192,24 @@ class ImageGenerator:
                 enhanced_prompt = self.prepare_prompt(storyboard, characters, art_style, tweak_prompt)
                 enhanced_prompts.append(enhanced_prompt)
                 
-                # Check if this scene mentions PocketRAG in description, subtitles, OR project title
+                # Check if this scene mentions the product in description, subtitles, OR project title
                 description = storyboard.get('description', '')
                 subtitles = storyboard.get('subtitles', '')
                 project_title = storyboard_project.get('project_info', {}).get('title', '')
                 
-                logger.info(f"📋 Scene {i+1} - Checking for PocketRAG...")
+                logger.info(f"📋 Scene {i+1} - Checking for product mention...")
                 logger.info(f"  Title: '{project_title}'")
                 logger.info(f"  Description: '{description[:100]}'")
                 logger.info(f"  Subtitles: '{subtitles[:100]}'")
                 
-                # Check title, description, AND subtitles for PocketRAG
-                is_pocketrag = (self.has_pocketrag_mention(project_title) or 
-                               self.has_pocketrag_mention(description) or 
-                               self.has_pocketrag_mention(subtitles))
+                # Check title, description, AND subtitles for product mention
+                is_product_scene = (self.has_product_mention(project_title) or 
+                               self.has_product_mention(description) or 
+                               self.has_product_mention(subtitles))
                 
-                if is_pocketrag:
-                    pocketrag_scenes.append((i, enhanced_prompt))
-                    logger.info(f"✅ POCKETRAG DETECTED: Scene {i+1} will use Flux.2 [dev] with reference image")
+                if is_product_scene:
+                    product_scenes.append((i, enhanced_prompt))
+                    logger.info(f"✅ PRODUCT DETECTED: Scene {i+1} will use Flux.2 [dev] with reference image")
                     logger.info(f"  Enhanced prompt: '{enhanced_prompt[:150]}'")
                 else:
                     regular_scenes.append((i, enhanced_prompt))
@@ -196,26 +224,21 @@ class ImageGenerator:
                 logger.info(f"Generating {len(regular_prompts)} REGULAR images in parallel batch...")
                 regular_image_results = await runware_flux_batch_api(task_id, regular_prompts)
             
-            # Reference images to cycle through for PocketRAG scenes
-            pocketrag_reference_images = [
-                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
-                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
-                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.49.28%E2%80%AFPM.png",
-                "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
-            ]
-            pocketrag_image_results = []
-            if pocketrag_scenes:
-                logger.info(f"📱 Generating {len(pocketrag_scenes)} POCKETRAG images with Flux.2 [dev] and cycling reference images...")
-                for idx, (scene_idx, prompt) in enumerate(pocketrag_scenes):
-                    reference_image_url = pocketrag_reference_images[idx % len(pocketrag_reference_images)]
-                    logger.info(f"📱 PocketRAG image {idx+1}/{len(pocketrag_scenes)}: Calling API for scene {scene_idx+1} with reference image {reference_image_url}")
+            # Reference images to cycle through for product scenes (from config)
+            product_reference_images = self.get_product_reference_images()
+            product_image_results = []
+            if product_scenes:
+                logger.info(f"📱 Generating {len(product_scenes)} PRODUCT images with Flux.2 [dev] and cycling reference images...")
+                for idx, (scene_idx, prompt) in enumerate(product_scenes):
+                    reference_image_url = product_reference_images[idx % len(product_reference_images)] if product_reference_images else None
+                    logger.info(f"📱 Product image {idx+1}/{len(product_scenes)}: Calling API for scene {scene_idx+1} with reference image {reference_image_url}")
                     result = await runware_pocketrag_image_api(task_id, prompt, reference_image_url)
                     if result and isinstance(result, dict):
                         image_url = result.get('url')
-                        logger.info(f"✅ PocketRAG scene {scene_idx+1} SUCCESS: {image_url}")
+                        logger.info(f"✅ Product scene {scene_idx+1} SUCCESS: {image_url}")
                     else:
-                        logger.error(f"❌ PocketRAG scene {scene_idx+1} FAILED: result={result}")
-                    pocketrag_image_results.append(result)
+                        logger.error(f"❌ Product scene {scene_idx+1} FAILED: result={result}")
+                    product_image_results.append(result)
             
             # Combine results in correct order
             image_results = [None] * total_images
@@ -226,14 +249,14 @@ class ImageGenerator:
                     image_results[scene_idx] = regular_image_results[i]
                     logger.debug(f"Placed regular image at index {scene_idx}")
             
-            # Place PocketRAG images
-            for i, (scene_idx, _) in enumerate(pocketrag_scenes):
-                if i < len(pocketrag_image_results):
-                    image_results[scene_idx] = pocketrag_image_results[i]
-                    if pocketrag_image_results[i]:
-                        logger.info(f"📱 Placed PocketRAG image at scene index {scene_idx}: {pocketrag_image_results[i].get('url') if isinstance(pocketrag_image_results[i], dict) else 'INVALID'}")
+            # Place product images
+            for i, (scene_idx, _) in enumerate(product_scenes):
+                if i < len(product_image_results):
+                    image_results[scene_idx] = product_image_results[i]
+                    if product_image_results[i]:
+                        logger.info(f"📱 Placed product image at scene index {scene_idx}: {product_image_results[i].get('url') if isinstance(product_image_results[i], dict) else 'INVALID'}")
                     else:
-                        logger.error(f"❌ PocketRAG image at scene {scene_idx} is None!")
+                        logger.error(f"❌ Product image at scene {scene_idx} is None!")
             
             # Log final image_results status
             logger.info(f"📊 Final image_results: {sum(1 for r in image_results if r)} out of {total_images} images")
@@ -250,10 +273,12 @@ class ImageGenerator:
                 if image_result and isinstance(image_result, dict):
                     image_url = image_result.get('url')
                     image_cost = image_result.get('cost')
+                    image_uuid = image_result.get('uuid')  # UUID for video generation
                     
                     storyboard_project['storyboards'][i]['image'] = image_url
                     storyboard_project['storyboards'][i]['enhanced_prompt'] = enhanced_prompt
                     storyboard_project['storyboards'][i]['image_generation_cost'] = image_cost  # Store cost
+                    storyboard_project['storyboards'][i]['runware_image_uuid'] = image_uuid  # Store UUID
                     storyboard_project['storyboards'][i]['error_message'] = None
                     
                     if image_cost is not None:

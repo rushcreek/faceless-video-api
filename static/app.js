@@ -5,6 +5,51 @@ let accessToken = null;
 let configOptions = null;
 let statusPollingInterval = null;
 
+// Default AI System Prompts (for restore functionality)
+const DEFAULT_AI_SYSTEM_PROMPTS = {
+    character_generation: {
+        system: `You are an expert at analyzing stories and creating detailed, vivid character descriptions, focusing on overall appearance. Your skills include:
+1. Extracting subtle character details from narrative context
+2. Creating consistent and believable descriptions of characters
+3. Focusing on permanent features and distinguishing attributes
+4. Adapting descriptions to fit the story's genre and tone
+5. Balancing physical features with character essence
+6. Translating character personalities into comprehensive physical attributes
+7. Accurately estimating and describing characters' attributes based on story context
+8. Avoiding any mention of clothing or attire in character descriptions`
+    },
+    video_prompt_generation: {
+        system: `You are an expert in video generation. You specialize in creating SIMPLE, MINIMAL motion prompts.
+
+CRITICAL RULES:
+1. Keep motion descriptions SHORT and GENERAL
+2. Use broad terms like "gentle movement" instead of specific detailed actions
+3. Avoid describing complex or specific human movements
+4. Prioritize subtlety over detail
+5. When in doubt, use less description
+
+You create simple, understated motion descriptions that avoid unintended distortions.`
+    },
+    storyboard_generation: {
+        system: `You are a highly skilled storyboard artist with expertise in visual storytelling across all genres. You excel at:
+1. Creating vivid, cinematic scene descriptions for any type of narrative
+2. Adapting to various story styles and art styles while maintaining the original narrative's essence
+3. Incorporating cinematographic techniques into your descriptions
+4. Faithfully representing the original story using exact quotes for subtitles
+5. Ensuring visual narrative accurately captures key moments, emotions, and atmosphere
+6. Describing characters and settings in detail with consistency
+7. Specifying appropriate camera angles, compositions, shot sizes, and lighting
+8. Maintaining logical consistency between scene content and technical descriptions
+9. Applying creative visual guidance while preserving story integrity
+10. ALWAYS ensuring every scene description explicitly reflects the specified art style
+11. Describing all visual elements in ways that clearly convey the artistic treatment
+
+CRITICAL: You NEVER use the words "animate", "animated", "animation", "stylized", "illustration", or "illustrated" in your descriptions.
+Instead, you use terms like "rendered", "depicted", "portrayed", or "designed".
+The art style specification handles the visual treatment - you focus on describing what is seen in that style.`
+    }
+};
+
 // Load configuration options on page load
 async function loadConfigOptions() {
     try {
@@ -1136,6 +1181,339 @@ async function regenerateScene(sceneIdx) {
         regenerateBtn.textContent = '🔄 Regenerate with New Prompts';
     }
 }
+
+// ==================== SETTINGS MANAGEMENT ====================
+
+// Convert hex color to RGB array
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? [
+        parseInt(result[1], 16),
+        parseInt(result[2], 16),
+        parseInt(result[3], 16)
+    ] : [0, 0, 0];
+}
+
+// Convert RGB array to hex color
+function rgbToHex(rgb) {
+    if (!Array.isArray(rgb) || rgb.length !== 3) return '#000000';
+    return '#' + rgb.map(x => {
+        const hex = Math.max(0, Math.min(255, x)).toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+    }).join('');
+}
+
+// Convert color name to hex
+function colorNameToHex(colorName) {
+    const colors = {
+        'white': '#ffffff',
+        'yellow': '#ffff00',
+        'red': '#ff0000',
+        'blue': '#0000ff',
+        'green': '#00ff00',
+        'black': '#000000',
+        'orange': '#ffa500',
+        'cyan': '#00ffff',
+        'magenta': '#ff00ff'
+    };
+    return colors[colorName.toLowerCase()] || colorName;
+}
+
+// Load settings from server and populate form
+async function loadSettings() {
+    try {
+        const response = await fetch(`${API_BASE}/v1/video/config`);
+        if (!response.ok) {
+            throw new Error('Failed to load settings');
+        }
+        
+        const config = await response.json();
+        console.log('Loaded settings:', config);
+        
+        // Populate closing screen settings
+        if (config.video_settings?.closing_screen) {
+            const cs = config.video_settings.closing_screen;
+            document.getElementById('primary_logo_url').value = cs.primary_logo_url || '';
+            document.getElementById('secondary_image_url').value = cs.secondary_image_url || '';
+            document.getElementById('closing_bg_color').value = rgbToHex(cs.background_color || [0, 0, 0]);
+            document.getElementById('closing_duration').value = cs.duration || 4;
+        }
+        
+        // Populate caption settings
+        if (config.video_settings?.captions) {
+            const captions = config.video_settings.captions;
+            document.getElementById('caption_font_size').value = captions.font_size || 80;
+            document.getElementById('max_words_per_phrase').value = captions.max_words_per_phrase || 5;
+            document.getElementById('caption_vertical_position').value = captions.vertical_position || 0.75;
+            document.getElementById('caption_position_display').textContent = captions.vertical_position || 0.75;
+            document.getElementById('caption_text_color').value = colorNameToHex(captions.text_color || 'white');
+            document.getElementById('caption_highlight_color').value = colorNameToHex(captions.highlight_color || 'yellow');
+        }
+        
+        // Populate video output settings
+        if (config.video_settings?.output) {
+            const output = config.video_settings.output;
+            document.getElementById('video_width').value = output.width || 1080;
+            document.getElementById('video_height').value = output.height || 1920;
+            document.getElementById('video_fps').value = output.fps || 20;
+            document.getElementById('zoom_speed').value = output.zoom_speed || 0.03;
+            document.getElementById('audio_fadeout').value = output.audio_fadeout_duration || 0.3;
+        }
+        
+        // Populate product mention settings
+        if (config.product_mention) {
+            const pm = config.product_mention;
+            document.getElementById('product_mention_enabled').checked = pm.enabled !== false;
+            document.getElementById('product_keywords').value = (pm.keywords || []).join(', ');
+            document.getElementById('product_prompt_template').value = pm.prompt_template || '';
+            document.getElementById('product_reference_images').value = (pm.reference_images || []).join('\n');
+        }
+        
+        // Populate AI prompts settings
+        if (config.ai_prompts) {
+            const ai = config.ai_prompts;
+            if (ai.video_motion) {
+                document.getElementById('video_default_prompt').value = ai.video_motion.default_prompt || '';
+                document.getElementById('video_negative_prompt').value = ai.video_motion.negative_prompt || '';
+            }
+            if (ai.image_generation) {
+                document.getElementById('image_negative_prompt').value = ai.image_generation.negative_prompt || '';
+            }
+        }
+        
+        // Populate AI System Prompts (Danger Zone)
+        if (config.ai_system_prompts) {
+            const sys = config.ai_system_prompts;
+            if (sys.character_generation?.system) {
+                document.getElementById('character_system_prompt').value = sys.character_generation.system;
+            }
+            if (sys.video_prompt_generation?.system) {
+                document.getElementById('video_prompt_system_prompt').value = sys.video_prompt_generation.system;
+            }
+            if (sys.storyboard_generation?.system) {
+                document.getElementById('storyboard_system_prompt').value = sys.storyboard_generation.system;
+            }
+        } else {
+            // Use defaults if not set
+            document.getElementById('character_system_prompt').value = DEFAULT_AI_SYSTEM_PROMPTS.character_generation.system;
+            document.getElementById('video_prompt_system_prompt').value = DEFAULT_AI_SYSTEM_PROMPTS.video_prompt_generation.system;
+            document.getElementById('storyboard_system_prompt').value = DEFAULT_AI_SYSTEM_PROMPTS.storyboard_generation.system;
+        }
+        
+        console.log('Settings loaded successfully');
+    } catch (error) {
+        console.error('Error loading settings:', error);
+        alert('Failed to load settings: ' + error.message);
+    }
+}
+
+// Save settings to server
+async function saveSettings() {
+    try {
+        // Get auth token
+        const token = await getAuthToken();
+        if (!token) {
+            alert('Authentication required to save settings');
+            return;
+        }
+        
+        // Build the settings object
+        const settings = {
+            video_settings: {
+                closing_screen: {
+                    primary_logo_url: document.getElementById('primary_logo_url').value.trim(),
+                    secondary_image_url: document.getElementById('secondary_image_url').value.trim(),
+                    background_color: hexToRgb(document.getElementById('closing_bg_color').value),
+                    duration: parseFloat(document.getElementById('closing_duration').value) || 4
+                },
+                captions: {
+                    font_size: parseInt(document.getElementById('caption_font_size').value) || 80,
+                    max_words_per_phrase: parseInt(document.getElementById('max_words_per_phrase').value) || 5,
+                    vertical_position: parseFloat(document.getElementById('caption_vertical_position').value) || 0.75,
+                    text_color: document.getElementById('caption_text_color').value,
+                    highlight_color: document.getElementById('caption_highlight_color').value
+                },
+                output: {
+                    width: parseInt(document.getElementById('video_width').value) || 1080,
+                    height: parseInt(document.getElementById('video_height').value) || 1920,
+                    fps: parseInt(document.getElementById('video_fps').value) || 20,
+                    zoom_speed: parseFloat(document.getElementById('zoom_speed').value) || 0.03,
+                    audio_fadeout_duration: parseFloat(document.getElementById('audio_fadeout').value) || 0.3
+                }
+            },
+            product_mention: {
+                enabled: document.getElementById('product_mention_enabled').checked,
+                keywords: document.getElementById('product_keywords').value
+                    .split(',')
+                    .map(k => k.trim())
+                    .filter(k => k.length > 0),
+                prompt_template: document.getElementById('product_prompt_template').value.trim(),
+                reference_images: document.getElementById('product_reference_images').value
+                    .split('\n')
+                    .map(url => url.trim())
+                    .filter(url => url.length > 0)
+            },
+            ai_prompts: {
+                video_motion: {
+                    default_prompt: document.getElementById('video_default_prompt').value.trim(),
+                    negative_prompt: document.getElementById('video_negative_prompt').value.trim()
+                },
+                image_generation: {
+                    negative_prompt: document.getElementById('image_negative_prompt').value.trim()
+                }
+            },
+            ai_system_prompts: {
+                character_generation: {
+                    system: document.getElementById('character_system_prompt').value.trim()
+                },
+                video_prompt_generation: {
+                    system: document.getElementById('video_prompt_system_prompt').value.trim()
+                },
+                storyboard_generation: {
+                    system: document.getElementById('storyboard_system_prompt').value.trim()
+                }
+            }
+        };
+        
+        console.log('Saving settings:', settings);
+        
+        const response = await fetch(`${API_BASE}/v1/video/config`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(settings)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to save settings');
+        }
+        
+        const result = await response.json();
+        console.log('Settings saved:', result);
+        alert('Settings saved successfully!');
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        alert('Failed to save settings: ' + error.message);
+    }
+}
+
+// Update caption position display when slider changes
+document.addEventListener('DOMContentLoaded', () => {
+    const positionSlider = document.getElementById('caption_vertical_position');
+    const positionDisplay = document.getElementById('caption_position_display');
+    
+    if (positionSlider && positionDisplay) {
+        positionSlider.addEventListener('input', (e) => {
+            positionDisplay.textContent = parseFloat(e.target.value).toFixed(2);
+        });
+    }
+    
+    // Enhance number inputs in settings with custom buttons
+    enhanceNumberInputs();
+    
+    // Load settings when page loads
+    loadSettings();
+});
+
+// Enhance number inputs with custom increment/decrement buttons
+function enhanceNumberInputs() {
+    const settingsSection = document.querySelector('.settings-section');
+    if (!settingsSection) return;
+    
+    const numberInputs = settingsSection.querySelectorAll('input[type="number"]');
+    
+    numberInputs.forEach(input => {
+        // Skip if already wrapped
+        if (input.parentElement.classList.contains('number-input-wrapper')) return;
+        
+        // Create wrapper
+        const wrapper = document.createElement('div');
+        wrapper.className = 'number-input-wrapper';
+        
+        // Insert wrapper and move input inside
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+        
+        // Create button container
+        const buttons = document.createElement('div');
+        buttons.className = 'number-buttons';
+        
+        // Create increment button
+        const incrementBtn = document.createElement('button');
+        incrementBtn.type = 'button';
+        incrementBtn.className = 'number-btn';
+        incrementBtn.innerHTML = '▲';
+        incrementBtn.addEventListener('click', () => {
+            input.stepUp();
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        
+        // Create decrement button
+        const decrementBtn = document.createElement('button');
+        decrementBtn.type = 'button';
+        decrementBtn.className = 'number-btn';
+        decrementBtn.innerHTML = '▼';
+        decrementBtn.addEventListener('click', () => {
+            input.stepDown();
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        
+        buttons.appendChild(incrementBtn);
+        buttons.appendChild(decrementBtn);
+        wrapper.appendChild(buttons);
+    });
+}
+
+// Restore a single system prompt to its default value
+function restoreDefaultPrompt(promptType) {
+    const promptMap = {
+        'character': {
+            id: 'character_system_prompt',
+            key: 'character_generation'
+        },
+        'video_prompt': {
+            id: 'video_prompt_system_prompt',
+            key: 'video_prompt_generation'
+        },
+        'storyboard': {
+            id: 'storyboard_system_prompt',
+            key: 'storyboard_generation'
+        }
+    };
+    
+    const mapping = promptMap[promptType];
+    if (!mapping) {
+        console.error('Unknown prompt type:', promptType);
+        return;
+    }
+    
+    const defaultValue = DEFAULT_AI_SYSTEM_PROMPTS[mapping.key]?.system || '';
+    const textarea = document.getElementById(mapping.id);
+    
+    if (textarea) {
+        textarea.value = defaultValue;
+        console.log(`Restored ${promptType} prompt to default`);
+    }
+}
+
+// Restore all system prompts to their default values
+function restoreAllDefaultPrompts() {
+    if (!confirm('Are you sure you want to restore ALL system prompts to their defaults? This cannot be undone until you reload.')) {
+        return;
+    }
+    
+    restoreDefaultPrompt('character');
+    restoreDefaultPrompt('video_prompt');
+    restoreDefaultPrompt('storyboard');
+    
+    console.log('All system prompts restored to defaults');
+    alert('All system prompts have been restored to defaults. Click "Save Settings" to apply the changes.');
+}
+
+// ==================== END SETTINGS MANAGEMENT ====================
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {

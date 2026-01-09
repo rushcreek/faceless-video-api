@@ -39,6 +39,201 @@
                     <small>Provide additional instructions to fine-tune how images are generated</small>
                 </div>
 
+                <!-- Collapsible Settings Section -->
+                <details class="settings-section">
+                    <summary>Advanced Settings</summary>
+                    <div class="settings-content">
+                        <p class="settings-intro">Configure video generation parameters, branding, and visual appearance.</p>
+                        
+                        <!-- Closing Screen Settings -->
+                        <div class="settings-group">
+                            <h4>Closing Screen</h4>
+                            <p class="settings-description">Customize the branding screen shown at the end of your video.</p>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="primary_logo_url">Primary Logo URL</label>
+                                    <input type="url" id="primary_logo_url" name="primary_logo_url" placeholder="https://example.com/logo.png">
+                                    <small>Main branding logo displayed prominently</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="secondary_image_url">Secondary Image URL</label>
+                                    <input type="url" id="secondary_image_url" name="secondary_image_url" placeholder="https://example.com/secondary.png">
+                                    <small>QR code, badge, or secondary branding</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="closing_bg_color">Background Color</label>
+                                    <input type="color" id="closing_bg_color" name="closing_bg_color" value="#000000">
+                                    <small>Screen background color</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="closing_duration">Duration (seconds)</label>
+                                    <input type="number" id="closing_duration" name="closing_duration" min="1" max="10" step="0.5" value="4">
+                                    <small>Display time for closing screen</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Caption Settings -->
+                        <div class="settings-group">
+                            <h4>Captions</h4>
+                            <p class="settings-description">Control how subtitles appear on screen during playback.</p>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="caption_font_size">Font Size</label>
+                                    <input type="number" id="caption_font_size" name="caption_font_size" min="20" max="200" value="80">
+                                    <small>Text size in pixels</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="max_words_per_phrase">Words Per Phrase</label>
+                                    <input type="number" id="max_words_per_phrase" name="max_words_per_phrase" min="1" max="15" value="5">
+                                    <small>Maximum words shown at once</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="caption_vertical_position">Vertical Position</label>
+                                    <input type="range" id="caption_vertical_position" name="caption_vertical_position" min="0.1" max="0.9" step="0.05" value="0.75">
+                                    <small>Position: <strong id="caption_position_display">0.75</strong> (0=top, 1=bottom)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="caption_text_color">Text Color</label>
+                                    <input type="color" id="caption_text_color" name="caption_text_color" value="#ffffff">
+                                    <small>Base caption color</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="caption_highlight_color">Highlight Color</label>
+                                    <input type="color" id="caption_highlight_color" name="caption_highlight_color" value="#ffff00">
+                                    <small>Current word highlight</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Video Output Settings -->
+                        <div class="settings-group">
+                            <h4>Video Output</h4>
+                            <p class="settings-description">Technical parameters for the rendered video file.</p>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label for="video_width">Width (px)</label>
+                                    <input type="number" id="video_width" name="video_width" min="480" max="3840" step="10" value="1080">
+                                    <small>Video width in pixels</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="video_height">Height (px)</label>
+                                    <input type="number" id="video_height" name="video_height" min="480" max="3840" step="10" value="1920">
+                                    <small>Video height in pixels</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="video_fps">Frame Rate</label>
+                                    <input type="number" id="video_fps" name="video_fps" min="10" max="60" value="20">
+                                    <small>Frames per second (FPS)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="zoom_speed">Zoom Speed</label>
+                                    <input type="number" id="zoom_speed" name="zoom_speed" min="0" max="0.2" step="0.005" value="0.03">
+                                    <small>Ken Burns effect intensity</small>
+                                </div>
+                                <div class="form-group">
+                                    <label for="audio_fadeout">Audio Fade (sec)</label>
+                                    <input type="number" id="audio_fadeout" name="audio_fadeout" min="0" max="5" step="0.1" value="0.3">
+                                    <small>Fade duration at video end</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Product Mention Settings -->
+                        <div class="settings-group">
+                            <h4>Product Mention Detection</h4>
+                            <p class="settings-description">Automatically detect product names and use specialized image generation.</p>
+                            <div class="form-group checkbox-group">
+                                <label>
+                                    <input type="checkbox" id="product_mention_enabled" name="product_mention_enabled" checked>
+                                    Enable Product Detection
+                                </label>
+                                <small>When enabled, product keywords trigger special prompts</small>
+                            </div>
+                            <div class="form-grid" style="margin-top: 16px;">
+                                <div class="form-group">
+                                    <label for="product_keywords">Detection Keywords</label>
+                                    <input type="text" id="product_keywords" name="product_keywords" placeholder="pocketrag, pocket rag, pocket-rag">
+                                    <small>Comma-separated variations to match</small>
+                                </div>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="product_prompt_template">Image Prompt Template</label>
+                                <textarea id="product_prompt_template" name="product_prompt_template" rows="3" placeholder="A business user talking into a modern iPhone..."></textarea>
+                                <small>Custom prompt used when product keywords are detected in a scene</small>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="product_reference_images">Reference Images</label>
+                                <textarea id="product_reference_images" name="product_reference_images" rows="4" placeholder="https://example.com/reference1.png&#10;https://example.com/reference2.png"></textarea>
+                                <small>One URL per line — images will cycle through for product scenes</small>
+                            </div>
+                        </div>
+
+                        <!-- AI Prompts Settings -->
+                        <div class="settings-group">
+                            <h4>AI Generation Prompts</h4>
+                            <p class="settings-description">Configure default prompts for video motion and image generation.</p>
+                            
+                            <div class="form-group full-width">
+                                <label for="video_default_prompt">Default Video Motion Prompt</label>
+                                <textarea id="video_default_prompt" name="video_default_prompt" rows="2" placeholder="Subtle camera movement, natural ambient motion"></textarea>
+                                <small>Default motion description when generating video from images</small>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="video_negative_prompt">Video Negative Prompt</label>
+                                <textarea id="video_negative_prompt" name="video_negative_prompt" rows="2" placeholder="static, frozen, jerky motion, unnatural movement"></textarea>
+                                <small>What to avoid in video generation (motion artifacts, distortions)</small>
+                            </div>
+                            <div class="form-group full-width">
+                                <label for="image_negative_prompt">Image Negative Prompt</label>
+                                <textarea id="image_negative_prompt" name="image_negative_prompt" rows="2" placeholder="blurry, low quality, distorted, deformed"></textarea>
+                                <small>What to avoid in image generation (quality issues, artifacts)</small>
+                            </div>
+                        </div>
+
+                        <!-- Danger Zone -->
+                        <details class="danger-zone">
+                            <summary>⚠️ Danger Zone - AI System Prompts</summary>
+                            <div class="danger-zone-content">
+                                <p class="danger-warning">
+                                    <strong>Warning:</strong> Modifying these prompts can significantly affect the quality and consistency of generated content. 
+                                    Only edit if you understand how system prompts work.
+                                </p>
+                                
+                                <div class="form-group full-width">
+                                    <label for="character_system_prompt">Character Generation System Prompt</label>
+                                    <textarea id="character_system_prompt" name="character_system_prompt" rows="8" class="monospace-textarea"></textarea>
+                                    <small>System instructions for character description generation</small>
+                                    <button type="button" class="btn btn-small btn-restore" onclick="restoreDefaultPrompt('character')">↩️ Restore Default</button>
+                                </div>
+                                
+                                <div class="form-group full-width">
+                                    <label for="video_prompt_system_prompt">Video Prompt Generation System Prompt</label>
+                                    <textarea id="video_prompt_system_prompt" name="video_prompt_system_prompt" rows="8" class="monospace-textarea"></textarea>
+                                    <small>System instructions for video motion prompt generation</small>
+                                    <button type="button" class="btn btn-small btn-restore" onclick="restoreDefaultPrompt('video_prompt')">↩️ Restore Default</button>
+                                </div>
+                                
+                                <div class="form-group full-width">
+                                    <label for="storyboard_system_prompt">Storyboard Generation System Prompt</label>
+                                    <textarea id="storyboard_system_prompt" name="storyboard_system_prompt" rows="12" class="monospace-textarea"></textarea>
+                                    <small>System instructions for storyboard scene generation</small>
+                                    <button type="button" class="btn btn-small btn-restore" onclick="restoreDefaultPrompt('storyboard')">↩️ Restore Default</button>
+                                </div>
+                                
+                                <div class="button-group">
+                                    <button type="button" class="btn btn-danger-outline" onclick="restoreAllDefaultPrompts()">↩️ Restore All Defaults</button>
+                                </div>
+                            </div>
+                        </details>
+
+                        <div class="button-group">
+                            <button type="button" class="btn btn-secondary" onclick="loadSettings()">🔄 Reload</button>
+                            <button type="button" class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
+                        </div>
+                    </div>
+                </details>
+
                 <div class="form-grid">
                     <div class="form-group">
                         <label for="story_style_descriptor">Visual Tone (Optional)</label>
