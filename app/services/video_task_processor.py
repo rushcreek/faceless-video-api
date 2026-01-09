@@ -123,14 +123,12 @@ class VideoTaskProcessor:
                 logger.info(f"Task {task_id} was cancelled, stopping before video generation")
                 return
 
-            # Skip audio generation here - it's now handled inside generate_video
-
-            # Step 5: Generate video directly with the storyboard_project we have
-            # This will: generate audio, transcribe, generate image prompts, generate images, save to DB, and create video
+            # Step 5: Generate audio, images, and video clips BEFORE assembling final video
+            # This is more efficient than generating the video twice
             await task.update(
                 task_id=task_id,
-                progress=0.55,
-                status_message="Generating video with images and captions..."
+                progress=0.50,
+                status_message="Generating audio and images..."
             )
             
             try:
@@ -138,20 +136,16 @@ class VideoTaskProcessor:
                 async def video_progress_callback(progress_value, message):
                     await task.update(task_id=task_id, progress=round(progress_value, 2), status_message=message)
                 
-                # Generate final video directly with storyboard_project
-                video_path = await self.video_generator.generate_video(
+                # Call the new method that generates audio, images, saves to DB, but doesn't assemble video yet
+                await self.video_generator.generate_audio_and_images(
                     storyboard_project,
                     story_dir,
                     voice_name,
-                    task.caption_font or 'BebasNeue',
                     progress_callback=video_progress_callback,
                     task_id=task_id
                 )
                 
-                if not video_path:
-                    raise ValueError("Failed to create final video")
-                
-                # Step 6: Generate video clips for key scenes (images are now in DB)
+                # Step 6: Generate video clips for key scenes (images and timing are now known)
                 logger.info(f"🎬 Starting video clip generation for key scenes...")
                 await task.update(task_id=task_id, progress=0.65, status_message="Generating animated video clips...")
                 
@@ -162,44 +156,62 @@ class VideoTaskProcessor:
                 if scenes_with_video_requests:
                     logger.info(f"Found {len(scenes_with_video_requests)} scenes with video generation requests")
                     await self._generate_video_clips_for_scenes(task_id, scenes_with_video_requests, task)
+                    
+                    # Update storyboard with video clip URLs (sort by scene_number to match storyboard order)
+                    images = await Image.list_by_task(task_id)
+                    images.sort(key=lambda x: x.scene_number or 0)  # Sort by scene_number
+                    for idx, scene in enumerate(storyboard_project["storyboards"]):
+                        if idx < len(images):
+                            scene["video_clip_url"] = images[idx].video_clip_url
+                            # Also ensure image URL is set from database
+                            if images[idx].urls:
+                                scene["image"] = images[idx].urls[0]
+                            logger.info(f"Scene {idx + 1}: video_clip_url = {images[idx].video_clip_url}, image = {scene.get('image', 'NONE')[:50] if scene.get('image') else 'NONE'}")
                 else:
                     logger.info("No scenes require video clip generation")
+                    # Still need to ensure image URLs are populated from database
+                    images = await Image.list_by_task(task_id)
+                    images.sort(key=lambda x: x.scene_number or 0)
+                    for idx, scene in enumerate(storyboard_project["storyboards"]):
+                        if idx < len(images) and images[idx].urls:
+                            scene["image"] = images[idx].urls[0]
                 
-                # Step 7: Regenerate final video WITH video clips
-                logger.info(f"🎥 Regenerating final video with animated clips...")
-                await task.update(task_id=task_id, progress=0.80, status_message="Creating final video with animations...")
-                
-                # Get updated images (now with video_clip_url populated)
-                images = await Image.list_by_task(task_id)
-                
-                # Recreate storyboard with video clips
+                # Debug: Log storyboard state before assembly
+                logger.info(f"📋 Storyboard state before assembly:")
                 for idx, scene in enumerate(storyboard_project["storyboards"]):
-                    if idx < len(images):
-                        scene["video_clip_url"] = images[idx].video_clip_url
+                    logger.info(f"  Scene {idx + 1}: image={bool(scene.get('image'))}, _word_segments={len(scene.get('_word_segments', []))}, video_clip_url={bool(scene.get('video_clip_url'))}")
                 
-                # Regenerate video with clips
-                video_path_with_clips = await self.video_generator.generate_video(
+                # Step 7: Assemble final video ONCE with clips where available
+                logger.info(f"🎥 Assembling final video (with animated clips)...")
+                await task.update(task_id=task_id, progress=0.80, status_message="Assembling final video...")
+                
+                # Assemble the video using existing audio/images/clips
+                video_path = await self.video_generator.assemble_final_video(
                     storyboard_project,
                     story_dir,
-                    voice_name,
                     task.caption_font or 'BebasNeue',
                     progress_callback=video_progress_callback,
                     task_id=task_id
                 )
                 
-                if video_path_with_clips:
-                    # Upload the new video with clips
-                    logger.info("Uploading final video with clips to R2...")
-                    await task.update(task_id=task_id, progress=0.98, status_message="Uploading final video...")
-                    video_name = os.path.basename(os.path.normpath(story_dir))
-                    object_name = f"videos/{task_id}/{video_name}.mp4"
-                    r2_url = await self.storage_service.upload_to_r2(video_path_with_clips, object_name)
-                    
-                    if r2_url:
-                        public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
-                        logger.info(f"Final video with clips uploaded: {public_url}")
+                if not video_path:
+                    raise ValueError("Failed to assemble final video")
+                
+                # Upload the final video
+                logger.info("Uploading final video to R2...")
+                await task.update(task_id=task_id, progress=0.98, status_message="Uploading final video...")
+                video_name = os.path.basename(os.path.normpath(story_dir))
+                object_name = f"videos/{task_id}/{video_name}.mp4"
+                r2_url = await self.storage_service.upload_to_r2(video_path, object_name)
+                
+                if not r2_url:
+                    raise ValueError("Failed to upload video to R2")
+                
+                public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
+                logger.info(f"Final video uploaded: {public_url}")
                 
                 # Calculate total cost from image generation and video clips
+                images = await Image.list_by_task(task_id)
                 total_cost = 0.0
                 image_gen_cost = 0.0
                 video_clip_cost = 0.0

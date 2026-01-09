@@ -554,6 +554,424 @@ class VideoGenerator:
             logger.error(f"Error adding captions with shortcap: {e}")
             raise
 
+    async def generate_audio_and_images(self, storyboard_project, story_dir, voice_name, progress_callback=None, task_id=None):
+        """
+        Phase 1: Generate audio for all scenes, transcribe for timing, generate images.
+        This prepares everything needed for video assembly but doesn't create the video yet.
+        Saves images and audio_duration to database.
+        """
+        audio_dir = os.path.join(story_dir, "audio")
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        current_time = 0.0
+        
+        try:
+            # Audio generation and transcription for timing
+            logger.info("📢 Phase 1: Generating audio and determining timing...")
+            for scene in storyboard_project['storyboards']:
+                audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
+                
+                # Generate audio
+                success = await self.audio_generator.generate_audio(scene['subtitles'], audio_file, voice_name)
+                if not success:
+                    logger.error(f"Failed to generate audio for scene {scene['scene_number']}")
+                    continue
+                    
+                audio_clip = AudioFileClip(audio_file)
+                duration = audio_clip.duration
+                scene['audio_duration'] = duration
+                logger.info(f"Scene {scene['scene_number']} audio duration: {duration:.2f}s")
+                
+                # Transcribe for accurate word timing
+                logger.info(f"Transcribing scene {scene['scene_number']}...")
+                transcription_words = await self.transcribe_audio_with_whisper(audio_file)
+                
+                # Build word segments with relative timing (relative to scene start)
+                relative_word_segments = []
+                if transcription_words:
+                    logger.info(f"Aligning script with transcription for scene {scene['scene_number']}...")
+                    aligned_words = self.align_script_with_transcription(
+                        scene['subtitles'], 
+                        transcription_words,
+                        audio_duration=duration
+                    )
+                    for word in aligned_words:
+                        relative_word_segments.append({
+                            "word": word["word"],
+                            "start": word["start"],
+                            "end": word["end"]
+                        })
+                else:
+                    logger.warning(f"Transcription failed for scene {scene['scene_number']}, using fallback timing")
+                    words = scene['subtitles'].split()
+                    if words:
+                        word_duration = duration / len(words)
+                        for i, word in enumerate(words):
+                            word_start = i * word_duration
+                            word_end = word_start + word_duration
+                            relative_word_segments.append({
+                                "word": " " + word,
+                                "start": word_start,
+                                "end": word_end
+                            })
+                
+                # Store in scene for use during video assembly
+                scene['_word_segments'] = relative_word_segments
+                logger.info(f"Scene {scene['scene_number']}: Created {len(relative_word_segments)} word segments")
+                
+                current_time += duration
+                audio_clip.close()
+            
+            # Image generation (now that we know timing)
+            logger.info("🖼️ Phase 2: Generating images...")
+            if progress_callback:
+                await progress_callback(0.40, "Generating images...")
+            
+            for scene in storyboard_project['storyboards']:
+                # Use word segments to build caption text for image prompt
+                word_segments = scene.get('_word_segments', [])
+                caption_phrase = " ".join([w['word'].strip() for w in word_segments]) if word_segments else scene['subtitles'][:50]
+                
+                # Build image prompt
+                description = scene.get('description', '')
+                enhanced_prompt = scene.get('enhanced_prompt', description)
+                prompt = f"{enhanced_prompt} | {caption_phrase}"
+                
+                # Truncate if too long (Runware limit)
+                MAX_PROMPT_LENGTH = 2800
+                if len(prompt) > MAX_PROMPT_LENGTH:
+                    logger.warning(f"Scene {scene['scene_number']}: Prompt too long ({len(prompt)} chars), truncating")
+                    prompt = prompt[:MAX_PROMPT_LENGTH] + "..."
+                
+                scene['enhanced_prompt'] = prompt
+                
+                # Check for PocketRAG scenes
+                is_pocketrag = (self.has_pocketrag_mention(description) or 
+                               self.has_pocketrag_mention(scene.get('subtitles', '')))
+                
+                if is_pocketrag:
+                    pocketrag_instruction = "A person holding a modern iPhone (black or white), with the iPhone screen displayed and visible. The iPhone screen shows the PocketRAG mobile app. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable."
+                    prompt = f"{pocketrag_instruction} | {caption_phrase}"
+                    pocketrag_reference_images = [
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.49.28%E2%80%AFPM.png",
+                        "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.50.21%E2%80%AFPM.png"
+                    ]
+                    reference_image_url = pocketrag_reference_images[scene['scene_number'] % len(pocketrag_reference_images)]
+                    result = await runware_pocketrag_image_api(task_id, prompt, reference_image_url)
+                else:
+                    result = await runware_flux_api(task_id, prompt)
+                
+                if result and isinstance(result, dict):
+                    image_url = result.get('url')
+                    scene['image'] = image_url
+                    scene['image_generation_cost'] = result.get('cost')
+                    logger.info(f"Generated image for scene {scene['scene_number']}: {image_url}")
+                else:
+                    scene['image'] = None
+                    logger.error(f"Image generation FAILED for scene {scene['scene_number']}")
+            
+            # Validate all scenes have images
+            logger.info("🔍 Validating images...")
+            missing_or_failed = []
+            for scene in storyboard_project['storyboards']:
+                if not scene.get('image'):
+                    missing_or_failed.append(f"Scene {scene.get('scene_number', 'unknown')}")
+            
+            if missing_or_failed:
+                error_msg = f"Image generation failed for {len(missing_or_failed)} scene(s): {', '.join(missing_or_failed)}"
+                logger.error(f"❌ FATAL: {error_msg}")
+                raise ValueError(error_msg)
+            
+            logger.info("✅ All scenes have valid images")
+            
+            # Save images to database
+            if task_id:
+                from uuid import uuid4
+                from app.models.image import Image
+                logger.info(f"💾 Saving {len(storyboard_project['storyboards'])} image records to database...")
+                for scene in storyboard_project['storyboards']:
+                    image_data = {
+                        "id": str(uuid4()),
+                        "task_id": task_id,
+                        "scene_number": scene.get('scene_number'),
+                        "urls": [scene.get('image')] if scene.get('image') else [],
+                        "subtitles": scene.get('subtitles', ''),
+                        "status": "completed" if scene.get('image') else "failed",
+                        "enhanced_prompt": scene.get('enhanced_prompt', ''),
+                        "video_generation_request": scene.get('video_generation_request'),
+                        "audio_duration": scene.get('audio_duration'),
+                        "image_generation_cost": scene.get('image_generation_cost'),
+                        "error_message": scene.get('error_message', '')
+                    }
+                    await Image.create(**image_data)
+                    logger.info(f"  ✅ Saved scene {scene.get('scene_number')} to database")
+                logger.info("✅ All image records saved to database")
+            
+            logger.info("✅ Phase 1 complete: Audio and images ready for video clip generation")
+            
+        except Exception as e:
+            logger.error(f"❌ Error in generate_audio_and_images: {e}", exc_info=True)
+            raise
+
+    async def assemble_final_video(self, storyboard_project, story_dir, caption_font='BebasNeue', progress_callback=None, task_id=None):
+        """
+        Phase 2: Assemble the final video using pre-generated audio, images, and video clips.
+        Assumes audio files and images already exist (from generate_audio_and_images).
+        Video clips (video_clip_url) should be populated in storyboard scenes if available.
+        """
+        audio_dir = os.path.join(story_dir, "audio")
+        video_path = os.path.join(story_dir, "story_video.mp4")
+        clips = []
+        subtitle_segments = []
+        clip_current_time = 0.0
+        
+        timings = {}
+        start_total = time.time()
+        
+        try:
+            logger.info("🎬 Phase 2: Assembling final video with clips...")
+            
+            # Debug: Log what data we have for each scene
+            logger.info(f"📋 Received {len(storyboard_project.get('storyboards', []))} scenes")
+            for idx, scene in enumerate(storyboard_project.get('storyboards', [])):
+                logger.info(f"  Scene {scene.get('scene_number', idx+1)}: image={bool(scene.get('image'))}, _word_segments={len(scene.get('_word_segments', []))}, video_clip_url={bool(scene.get('video_clip_url'))}")
+            
+            # Image processing and clip creation
+            start_clips = time.time()
+            for scene in storyboard_project['storyboards']:
+                audio_file = os.path.join(audio_dir, f"scene_{scene['scene_number']}.mp3")
+                if not os.path.exists(audio_file):
+                    logger.warning(f"Audio file missing for scene {scene['scene_number']}, skipping")
+                    continue
+                    
+                audio_clip = AudioFileClip(audio_file)
+                duration = audio_clip.duration
+                
+                # Check for video clip or static image
+                is_pocketrag_scene = (self.has_pocketrag_mention(scene.get('description', '')) or 
+                                     self.has_pocketrag_mention(scene.get('subtitles', '')))
+                
+                video_clip_url = scene.get('video_clip_url')
+                if is_pocketrag_scene and video_clip_url:
+                    logger.info(f"🎯 Scene {scene['scene_number']} is PocketRAG - using static image instead of video clip")
+                    video_clip_url = None
+                
+                if video_clip_url:
+                    # Use animated video clip
+                    logger.info(f"🎬 Using video clip for scene {scene['scene_number']}: {video_clip_url}")
+                    video_ext = '.mp4'
+                    scene_video_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{video_ext}")
+                    downloaded_video = await download_image(video_clip_url, scene_video_path)
+                    
+                    if downloaded_video and os.path.exists(downloaded_video):
+                        logger.info(f"Successfully downloaded video clip for scene {scene['scene_number']}")
+                    else:
+                        logger.error(f"Failed to download video clip, falling back to static image")
+                        video_clip_url = None
+                
+                if not video_clip_url:
+                    # Download static image
+                    image_url = scene.get('image')
+                    if not image_url:
+                        logger.error(f"No image URL for scene {scene['scene_number']}, skipping")
+                        audio_clip.close()
+                        continue
+                    
+                    image_ext = '.jpg' if image_url.endswith('.jpg') else '.png'
+                    image_path = os.path.join(story_dir, f"scene_{scene['scene_number']}{image_ext}")
+                    downloaded_image = await download_image(image_url, image_path)
+                    
+                    if not downloaded_image or not os.path.exists(downloaded_image):
+                        logger.error(f"Failed to download image for scene {scene['scene_number']}, skipping")
+                        audio_clip.close()
+                        continue
+                
+                # Create video clip (either from video file or static image)
+                video_width = 1080
+                video_height = 1920
+                
+                try:
+                    if video_clip_url and os.path.exists(downloaded_video):
+                        # Load and process video clip
+                        temp_clip = VideoFileClip(downloaded_video)
+                        video_duration = temp_clip.duration
+                        audio_duration = audio_clip.duration
+                        
+                        # Scale and crop to 9:16
+                        clip_aspect = temp_clip.w / temp_clip.h
+                        video_aspect = video_width / video_height
+                        
+                        if clip_aspect > video_aspect:
+                            new_width = int(temp_clip.w * (video_height / temp_clip.h))
+                            scaled_clip = temp_clip.resize(height=video_height).crop(x_center=new_width/2, width=video_width, height=video_height)
+                        else:
+                            new_height = int(temp_clip.h * (video_width / temp_clip.w))
+                            scaled_clip = temp_clip.resize(width=video_width).crop(y_center=new_height/2, width=video_width, height=video_height)
+                        
+                        # Sync video duration with audio
+                        if abs(video_duration - audio_duration) > 0.5:
+                            if video_duration < audio_duration:
+                                # Loop video
+                                num_loops = int(audio_duration / video_duration) + 1
+                                scaled_clip = concatenate_videoclips([scaled_clip] * num_loops).subclip(0, audio_duration)
+                            else:
+                                # Trim video
+                                scaled_clip = scaled_clip.subclip(0, audio_duration)
+                        
+                        video_clip = scaled_clip.set_audio(audio_clip)
+                        # Note: Don't close temp_clip here - it's needed for rendering later
+                    else:
+                        # Create static image clip with zoom effect
+                        image_clip = ImageClip(downloaded_image).set_duration(duration)
+                        image_aspect = image_clip.w / image_clip.h
+                        target_aspect = video_width / video_height
+                        
+                        if image_aspect > target_aspect:
+                            scale_factor = video_height / image_clip.h
+                        else:
+                            scale_factor = video_width / image_clip.w
+                        
+                        image_clip = image_clip.resize(scale_factor)
+                        image_clip = image_clip.crop(x_center=image_clip.w/2, y_center=image_clip.h/2, width=video_width, height=video_height)
+                        
+                        # Apply subtle zoom
+                        video_clip = zoom(image_clip, mode='in', position='center', speed=0.03)
+                        video_clip = video_clip.set_audio(audio_clip)
+                    
+                    clips.append(video_clip)
+                    
+                    # Build subtitle segments with correct timing
+                    relative_words = scene.get('_word_segments', [])
+                    if relative_words:
+                        # Convert relative timing to absolute timing based on clip_current_time
+                        absolute_word_segments = []
+                        for word in relative_words:
+                            absolute_word_segments.append({
+                                "word": word["word"],
+                                "start": clip_current_time + word["start"],
+                                "end": clip_current_time + word["end"]
+                            })
+                        subtitle_segments.append({
+                            "start": clip_current_time,
+                            "end": clip_current_time + duration,
+                            "words": absolute_word_segments
+                        })
+                        logger.info(f"Scene {scene['scene_number']}: Added subtitle segment at {clip_current_time:.2f}s - {clip_current_time + duration:.2f}s")
+                    
+                    clip_current_time += duration
+                    
+                except Exception as e:
+                    logger.error(f"Error creating clip for scene {scene['scene_number']}: {e}")
+                    audio_clip.close()
+                    continue
+            
+            timings['clip_creation'] = time.time() - start_clips
+            logger.info(f"✅ Created {len(clips)} video clips in {timings['clip_creation']:.2f}s")
+            
+            if not clips:
+                raise ValueError("No clips were created")
+            
+            # Add closing screen with branding
+            logger.info("Adding closing screen...")
+            if progress_callback:
+                await progress_callback(0.82, "Adding closing screen...")
+            
+            try:
+                closing_screen = self.create_closing_screen(duration=4)
+                if closing_screen:
+                    clips.append(closing_screen)
+                    logger.info("✅ Added closing screen with logos to video")
+                else:
+                    logger.warning("⚠️ Failed to create closing screen, continuing without it")
+            except Exception as e:
+                logger.error(f"⚠️ Error creating closing screen: {type(e).__name__}: {str(e)}")
+                logger.error("Continuing without closing screen")
+            
+            # Add audio fadeout to last scene clip to prevent audio artifacts
+            if len(clips) > 1 and clips[-2].audio is not None:
+                clips[-2] = clips[-2].audio_fadeout(0.3)
+            
+            # Concatenate and encode
+            logger.info("Concatenating clips...")
+            logger.info(f"  Clip count: {len(clips)}")
+            for i, clip in enumerate(clips):
+                try:
+                    dur = clip.duration if clip.duration is not None else "None"
+                    sz = clip.size if hasattr(clip, 'size') else "no size attr"
+                    has_audio = clip.audio is not None if hasattr(clip, 'audio') else "no audio attr"
+                    logger.info(f"  Clip {i+1}: duration={dur}, size={sz}, has_audio={has_audio}")
+                except Exception as e:
+                    logger.error(f"  Clip {i+1}: Error getting clip info: {e}")
+            
+            try:
+                final_clip = concatenate_videoclips(clips, method="compose")
+                logger.info(f"✅ Concatenated into {final_clip.duration:.2f}s video")
+            except Exception as concat_error:
+                logger.error(f"❌ Concatenation failed: {type(concat_error).__name__}: {concat_error}")
+                import traceback
+                logger.error(traceback.format_exc())
+                raise
+            
+            timings['concatenation'] = time.time() - start_clips - timings['clip_creation']
+            
+            logger.info("Encoding final video...")
+            if progress_callback:
+                await progress_callback(0.85, "Encoding video...")
+            
+            start_encoding = time.time()
+            await asyncio.to_thread(
+                final_clip.write_videofile,
+                video_path,
+                fps=20,
+                codec='libx264',
+                audio_codec='aac',
+                audio_bitrate='192k',
+                temp_audiofile='temp-audio.m4a',
+                remove_temp=True,
+                preset='faster',
+                threads=4,
+                logger=None
+            )
+            timings['video_encoding'] = time.time() - start_encoding
+            logger.info(f"✅ Video encoded in {timings['video_encoding']:.2f}s")
+            
+            # Clean up clips to release file handles
+            final_clip.close()
+            for clip in clips:
+                try:
+                    clip.close()
+                except:
+                    pass
+            
+            # Add captions
+            logger.info("Adding captions...")
+            if progress_callback:
+                await progress_callback(0.92, "Adding captions...")
+            
+            start_captions = time.time()
+            subtitle_video_path = video_path.replace('.mp4', '_subtitle.mp4')
+            await self.add_captions(video_path, subtitle_video_path, caption_font, custom_segments=subtitle_segments, progress_callback=progress_callback)
+            timings['caption_generation'] = time.time() - start_captions
+            logger.info(f"✅ Captions added in {timings['caption_generation']:.2f}s")
+            
+            timings['total'] = time.time() - start_total
+            logger.info(f"=== Video Assembly Timing ===")
+            logger.info(f"Clip creation: {timings.get('clip_creation', 0):.2f}s")
+            logger.info(f"Concatenation: {timings.get('concatenation', 0):.2f}s")
+            logger.info(f"Encoding: {timings.get('video_encoding', 0):.2f}s")
+            logger.info(f"Captions: {timings.get('caption_generation', 0):.2f}s")
+            logger.info(f"TOTAL: {timings['total']:.2f}s")
+            
+            return subtitle_video_path
+            
+        except Exception as e:
+            import traceback
+            logger.error(f"❌ Error in assemble_final_video: {e}")
+            logger.error(f"Full traceback:\n{traceback.format_exc()}")
+            return None
+
     async def generate_video(self, storyboard_project, story_dir, voice_name, caption_font='BebasNeue', progress_callback=None, task_id=None):
         audio_dir = os.path.join(story_dir, "audio")
         os.makedirs(audio_dir, exist_ok=True)
@@ -866,8 +1284,7 @@ class VideoGenerator:
                 
                 try:
                     if video_clip_url and os.path.exists(downloaded_video):
-                        # Use video clip - import VideoFileClip
-                        from moviepy.editor import VideoFileClip
+                        # Use video clip (VideoFileClip already imported at top)
                         
                         # Load the video clip
                         temp_clip = VideoFileClip(downloaded_video)
