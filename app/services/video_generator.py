@@ -692,11 +692,19 @@ class VideoGenerator:
                     fallback_used = True
                     # Prefer description, then subtitles
                     fallback_prompt = scene.get('description', '') or scene.get('subtitles', '')
-                    prompt = f"{fallback_prompt} | {storyboard_project.get('characters', [])}"
+                    prompt = f"{fallback_prompt}"
                     logger.warning(f"Scene {scene['scene_number']}: Caption phrase too short/empty, using fallback prompt: {prompt}")
                 else:
-                    prompt = f"{caption_phrase} | {storyboard_project.get('characters', [])} | {scene.get('description', '')}"
-                logger.info(f"Scene {scene['scene_number']}: Image prompt: {prompt}")
+                    prompt = f"{caption_phrase} | {scene.get('description', '')}"
+                
+                # CRITICAL: Runware API has a 3000 character limit for prompts
+                # Truncate if too long to avoid API errors
+                MAX_PROMPT_LENGTH = 2800  # Leave buffer for safety
+                if len(prompt) > MAX_PROMPT_LENGTH:
+                    logger.warning(f"Scene {scene['scene_number']}: Prompt too long ({len(prompt)} chars), truncating to {MAX_PROMPT_LENGTH}")
+                    prompt = prompt[:MAX_PROMPT_LENGTH] + "..."
+                
+                logger.info(f"Scene {scene['scene_number']}: Image prompt ({len(prompt)} chars): {prompt[:150]}...")
                 
                 # Check if THIS SPECIFIC SCENE mentions PocketRAG - use reference images and special prompt if so
                 # NOTE: Only check scene-specific content (description, subtitles), NOT project title

@@ -114,7 +114,6 @@ class VideoTaskProcessor:
             # NOTE: Image saving to database is now handled AFTER generate_video completes,
             # since images are generated inside generate_video after caption timing is determined.
             # Audio generation is also handled inside generate_video now.
-            # Video clip generation is skipped since images aren't in DB yet.
 
             await task.update(task_id=task_id, progress=0.50, status_message="Ready for video generation")
 
@@ -125,7 +124,6 @@ class VideoTaskProcessor:
                 return
 
             # Skip audio generation here - it's now handled inside generate_video
-            # Skip video clip generation here - images aren't in DB yet
 
             # Step 5: Generate video directly with the storyboard_project we have
             # This will: generate audio, transcribe, generate image prompts, generate images, save to DB, and create video
@@ -153,27 +151,71 @@ class VideoTaskProcessor:
                 if not video_path:
                     raise ValueError("Failed to create final video")
                 
-                # Upload to R2
-                await task.update(task_id=task_id, progress=0.98, status_message="Uploading video...")
-                video_name = os.path.basename(os.path.normpath(story_dir))
-                object_name = f"videos/{task_id}/{video_name}.mp4"
-                r2_url = await self.storage_service.upload_to_r2(video_path, object_name)
-                logger.info(f"Final video uploaded to R2: {r2_url}")
+                # Step 6: Generate video clips for key scenes (images are now in DB)
+                logger.info(f"🎬 Starting video clip generation for key scenes...")
+                await task.update(task_id=task_id, progress=0.65, status_message="Generating animated video clips...")
                 
-                if not r2_url:
-                    raise ValueError("Failed to upload video to R2")
-                
-                # Use public R2 URL format
-                public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
-                
-                # Calculate total cost from image generation (video clips not generated in this flow)
-                total_cost = 0.0
+                # Get images that need video clips (those with video_generation_request)
                 images = await Image.list_by_task(task_id)
+                scenes_with_video_requests = [img for img in images if img.video_generation_request]
+                
+                if scenes_with_video_requests:
+                    logger.info(f"Found {len(scenes_with_video_requests)} scenes with video generation requests")
+                    await self._generate_video_clips_for_scenes(task_id, scenes_with_video_requests, task)
+                else:
+                    logger.info("No scenes require video clip generation")
+                
+                # Step 7: Regenerate final video WITH video clips
+                logger.info(f"🎥 Regenerating final video with animated clips...")
+                await task.update(task_id=task_id, progress=0.80, status_message="Creating final video with animations...")
+                
+                # Get updated images (now with video_clip_url populated)
+                images = await Image.list_by_task(task_id)
+                
+                # Recreate storyboard with video clips
+                for idx, scene in enumerate(storyboard_project["storyboards"]):
+                    if idx < len(images):
+                        scene["video_clip_url"] = images[idx].video_clip_url
+                
+                # Regenerate video with clips
+                video_path_with_clips = await self.video_generator.generate_video(
+                    storyboard_project,
+                    story_dir,
+                    voice_name,
+                    task.caption_font or 'BebasNeue',
+                    progress_callback=video_progress_callback,
+                    task_id=task_id
+                )
+                
+                if video_path_with_clips:
+                    # Upload the new video with clips
+                    logger.info("Uploading final video with clips to R2...")
+                    await task.update(task_id=task_id, progress=0.98, status_message="Uploading final video...")
+                    video_name = os.path.basename(os.path.normpath(story_dir))
+                    object_name = f"videos/{task_id}/{video_name}.mp4"
+                    r2_url = await self.storage_service.upload_to_r2(video_path_with_clips, object_name)
+                    
+                    if r2_url:
+                        public_url = f"https://pub-b9f9db5f1fcd4c7fa65abaa742ab9de0.r2.dev/{object_name}"
+                        logger.info(f"Final video with clips uploaded: {public_url}")
+                
+                # Calculate total cost from image generation and video clips
+                total_cost = 0.0
+                image_gen_cost = 0.0
+                video_clip_cost = 0.0
+                
                 for image in images:
                     if image.image_generation_cost is not None:
+                        image_gen_cost += image.image_generation_cost
                         total_cost += image.image_generation_cost
+                    if image.video_clip_cost is not None:
+                        video_clip_cost += image.video_clip_cost
+                        total_cost += image.video_clip_cost
                 
-                logger.info(f"💰 Total cost for task {task_id}: ${total_cost:.6f}")
+                logger.info(f"💰 Total cost for task {task_id}:")
+                logger.info(f"   📸 Image generation: ${image_gen_cost:.6f}")
+                logger.info(f"   🎬 Video clips: ${video_clip_cost:.6f}")
+                logger.info(f"   💵 Total: ${total_cost:.6f}")
                 
                 # Update task with final video URL and total cost
                 await task.update(
@@ -209,6 +251,128 @@ class VideoTaskProcessor:
             #     os.remove(video_path)
             # if 'story_dir' in locals() and os.path.exists(story_dir):
             #     shutil.rmtree(story_dir)
+
+    async def _generate_video_clips_for_scenes(self, task_id: str, scenes: list, task):
+        """
+        Generate video clips for scenes that have video_generation_request.
+        This is called automatically during the main video generation flow.
+        """
+        from app.services.runware_video_sdk import generate_video_from_image
+        from app.db.session import async_session
+        import math
+        
+        logger.info(f"🎬 Generating video clips for {len(scenes)} scenes")
+        
+        async def generate_clip_for_scene(scene):
+            try:
+                logger.info(f"🎥 Processing scene {scene.scene_number}")
+                
+                # Get image URL
+                urls = scene.urls
+                if not urls or len(urls) == 0:
+                    logger.warning(f"Scene {scene.scene_number} has no image URLs")
+                    return
+                
+                image_url = urls[0]
+                
+                # Get duration from audio (fallback to 2 seconds if not available)
+                duration = scene.audio_duration or 2
+                logger.info(f"  📏 Scene duration: {duration}s")
+                
+                # Validate and round duration
+                if duration < 1:
+                    logger.warning(f"  ⚠️ Duration {duration}s too short, using minimum 2s")
+                    duration = 2
+                elif duration > 10:
+                    logger.warning(f"  ⚠️ Duration {duration}s too long, capping at 10s")
+                    duration = 10
+                
+                scene_duration = math.ceil(duration)
+                logger.info(f"  ✅ Using duration: {scene_duration}s for Runware API")
+                
+                # Get video generation prompt
+                if scene.video_generation_request and 'prompt' in scene.video_generation_request:
+                    prompt = scene.video_generation_request['prompt']
+                else:
+                    # Create basic animation prompt from subtitles
+                    prompt = f"Gentle camera movement, subtle zoom, {scene.subtitles[:100]}"
+                
+                # Generate unique task UUID for this clip
+                import uuid as uuid_lib
+                clip_task_uuid = str(uuid_lib.uuid4())
+                
+                # Update scene status to processing
+                async with async_session() as update_session:
+                    scene_to_update = await update_session.get(Image, scene.id)
+                    scene_to_update.video_clip_task_uuid = clip_task_uuid
+                    scene_to_update.video_clip_status = 'processing'
+                    await update_session.commit()
+                
+                logger.info(f"  🎬 Generating {scene_duration}s video clip for scene {scene.scene_number}")
+                logger.debug(f"  Image: {image_url}")
+                logger.debug(f"  Prompt: {prompt[:100]}...")
+                
+                # Generate video clip with actual scene duration
+                async with async_session() as check_session:
+                    result = await generate_video_from_image(
+                        image_url=image_url,
+                        prompt=prompt,
+                        duration=scene_duration,
+                        fps=24,
+                        db_session=check_session,
+                        image_id=scene.id
+                    )
+                
+                # Extract URL and cost from result
+                video_url = None
+                video_cost = None
+                if isinstance(result, dict):
+                    video_url = result.get('url')
+                    video_cost = result.get('cost')
+                elif isinstance(result, str):
+                    video_url = result  # Legacy string return
+                
+                # Check for cancellation
+                async with async_session() as final_check_session:
+                    final_scene = await final_check_session.get(Image, scene.id)
+                    if final_scene and final_scene.video_clip_status in ['failed', 'cancelled']:
+                        logger.info(f"  ℹ️ Video clip generation for scene {scene.scene_number} was cancelled")
+                        return
+                
+                # Update scene with result
+                async with async_session() as update_session:
+                    scene_to_update = await update_session.get(Image, scene.id)
+                    if video_url:
+                        scene_to_update.video_clip_url = video_url
+                        scene_to_update.video_clip_cost = video_cost
+                        scene_to_update.video_clip_status = 'completed'
+                        cost_str = f" (cost: ${video_cost})" if video_cost is not None else ""
+                        logger.info(f"✅ Video clip generated for scene {scene.scene_number}: {video_url}{cost_str}")
+                    else:
+                        scene_to_update.video_clip_status = 'failed'
+                        logger.error(f"❌ Failed to generate video clip for scene {scene.scene_number}")
+                    await update_session.commit()
+                
+            except Exception as e:
+                logger.error(f"Error generating video clip for scene {scene.scene_number}: {e}")
+                async with async_session() as update_session:
+                    scene_to_update = await update_session.get(Image, scene.id)
+                    scene_to_update.video_clip_status = 'failed'
+                    await update_session.commit()
+        
+        # Process all selected scenes in parallel
+        logger.info(f"🎥 Starting parallel video generation for {len(scenes)} scenes")
+        results = await asyncio.gather(*[
+            generate_clip_for_scene(scene)
+            for scene in scenes
+        ], return_exceptions=True)
+        
+        # Log any exceptions that occurred
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.error(f"❌ Exception in scene {scenes[i].scene_number}: {result}", exc_info=result)
+        
+        logger.info(f"✅ Completed video clip generation for task {task_id}")
 
     async def generate_audio_for_scenes(self, task_id: str, voice_name: str):
         """
