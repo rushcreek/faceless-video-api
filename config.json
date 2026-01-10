@@ -188,8 +188,8 @@
     "output": {
       "width": 1080,
       "height": 1920,
-      "fps": 20,
-      "zoom_speed": 0.03,
+      "fps": 24,
+      "zoom_speed": 0.04,
       "audio_fadeout_duration": 0.3
     }
   },

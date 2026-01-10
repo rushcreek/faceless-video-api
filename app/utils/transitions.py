@@ -2,6 +2,9 @@ from moviepy.editor import *
 import numpy as np
 from PIL import Image
 import cv2
+import logging
+
+logger = logging.getLogger(__name__)
 
 def fade(clip, duration=1, type="both"):
     if type == "in":
@@ -52,10 +55,11 @@ def zoom(clip, mode="in", position="center", speed=1, min_duration=5.0, max_zoom
         min_duration: Duration threshold below which zoom is moderated (default: 5.0 seconds)
         max_zoom_ratio: Maximum zoom ratio for full-duration clips (default: 0.15 = 15% zoom)
     """
-    if hasattr(clip, "fps") and clip.fps is not None:
+    if hasattr(clip, "fps") and clip.fps is not None and clip.fps > 1:
         fps = clip.fps
     else:
-        fps = 1
+        # Default to 24 fps for ImageClips and clips without proper fps
+        fps = 24
 
     duration = clip.duration
     total_frames = max(1, int(duration * fps))  # ensure at least 1 frame
@@ -68,6 +72,8 @@ def zoom(clip, mode="in", position="center", speed=1, min_duration=5.0, max_zoom
         effective_zoom_ratio = max_zoom_ratio * duration_factor
     else:
         effective_zoom_ratio = max_zoom_ratio
+
+    logger.info(f"🔍 Zoom effect: mode={mode}, fps={fps}, duration={duration:.2f}s, total_frames={total_frames}, effective_zoom_ratio={effective_zoom_ratio:.4f}")
 
     def main(getframe, t):
         frame = getframe(t)

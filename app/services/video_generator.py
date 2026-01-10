@@ -936,9 +936,9 @@ class VideoGenerator:
                         image_clip = image_clip.resize(scale_factor)
                         image_clip = image_clip.crop(x_center=image_clip.w/2, y_center=image_clip.h/2, width=video_width, height=video_height)
                         
-                        # Apply subtle zoom
-                        video_clip = zoom(image_clip, mode='in', position='center', speed=0.03)
-                        video_clip = video_clip.set_audio(audio_clip)
+                        # Apply Ken Burns zoom effect
+                        image_clip = zoom(image_clip, mode='in', position='center', speed=1)
+                        video_clip = image_clip.set_audio(audio_clip)
                     
                     clips.append(video_clip)
                     
@@ -1466,25 +1466,24 @@ class VideoGenerator:
                                          .crop(y_center=new_height/2, width=video_width, height=video_height)
                                          .set_duration(audio_duration))
                         
-                        # Combine image and audio
+                        # Apply zoom effect BEFORE adding audio (Ken Burns effect)
+                        transition_type = scene.get('transition_type', 'zoom-in')  # Default to zoom-in for static images
+                        logger.info(f"Scene {scene['scene_number']}: Applying transition '{transition_type}' to image clip")
+                        
+                        if transition_type == 'zoom-in':
+                            image_clip = zoom(image_clip, mode='in', position='center', speed=1)
+                        elif transition_type == 'zoom-out':
+                            image_clip = zoom(image_clip, mode='out', position='center', speed=1)
+                        
+                        # Combine image and audio AFTER applying zoom
                         video_clip = image_clip.set_audio(audio_clip)
                         logger.info(f"Scene {scene['scene_number']}: Final clip duration set to {audio_duration:.2f}s")
                     
                     # Add audio fade in/out to prevent artifacts between clips
                     video_clip = video_clip.audio_fadein(0.1).audio_fadeout(0.1)
 
-                    # Apply transition effect (only for static images, not video clips)
-                    transition_type = scene.get('transition_type', 'zoom-in')  # Default to zoom-in for static images
-                    
-                    logger.info(f"Adding clip for scene {scene['scene_number']} (type: {'video' if video_clip_url else 'image'}) with transition: {transition_type}")
-                        
-                    # Only apply zoom transitions to static images
-                    if not video_clip_url and transition_type == 'zoom-in':
-                        clips.append(zoom(video_clip))
-                    elif not video_clip_url and transition_type == 'zoom-out':
-                        clips.append(zoom(video_clip, mode='out'))
-                    else:
-                        clips.append(video_clip)
+                    logger.info(f"Adding clip for scene {scene['scene_number']} (type: {'video' if video_clip_url else 'image'})")
+                    clips.append(video_clip)
                     
                     # Build subtitle_segments with CORRECT timing (only for clips that make it into the video)
                     relative_words = scene.get('_word_segments', [])
