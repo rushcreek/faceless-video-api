@@ -333,3 +333,80 @@ async def regenerate_scene(
         "message": "Prompts updated successfully. Regeneration functionality coming soon.",
         "updates": updates
     }
+
+@router.get("/video/linkedin/status")
+async def get_linkedin_status(current_user: dict = Depends(get_current_user)):
+    """
+    Check if LinkedIn is configured and ready for posting.
+    """
+    from app.services.linkedin import is_linkedin_configured
+    
+    configured = is_linkedin_configured()
+    return {
+        "configured": configured,
+        "message": "LinkedIn is configured and ready" if configured else "LinkedIn credentials not set. Add LINKEDIN_ACCESS_TOKEN and LINKEDIN_MEMBER_URN to your .env file."
+    }
+
+
+@router.post("/video/tasks/{task_id}/post-to-linkedin")
+async def post_video_to_linkedin(
+    task_id: str,
+    post_content: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Post a completed video to LinkedIn.
+    
+    Request body:
+    - content: Text content for the LinkedIn post
+    
+    Returns success status and LinkedIn post URN.
+    """
+    from app.services.linkedin import create_linkedin_post, is_linkedin_configured
+    
+    # Check LinkedIn configuration
+    if not is_linkedin_configured():
+        raise HTTPException(
+            status_code=400, 
+            detail="LinkedIn credentials not configured. Add LINKEDIN_ACCESS_TOKEN and LINKEDIN_MEMBER_URN to your .env file."
+        )
+    
+    # Get the task
+    task = await VideoTask.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Verify task is completed and has a video URL
+    if task.status != "completed":
+        raise HTTPException(status_code=400, detail="Can only post completed videos to LinkedIn")
+    
+    if not task.url:
+        raise HTTPException(status_code=400, detail="No video URL available for this task")
+    
+    # Get post content
+    content = post_content.get("content", "").strip()
+    if not content:
+        # Use default content based on story title
+        content = f"Check out my new video: {task.story_title or 'Generated Video'}"
+    
+    logger.info(f"Posting video to LinkedIn for task {task_id}")
+    
+    # Create the LinkedIn post with video
+    result = await create_linkedin_post(
+        content=content,
+        media_type="VIDEO",
+        video_url=task.url
+    )
+    
+    if not result["success"]:
+        raise HTTPException(
+            status_code=500,
+            detail=result.get("message", result.get("error", "Failed to post to LinkedIn"))
+        )
+    
+    return {
+        "success": True,
+        "task_id": task_id,
+        "post_urn": result.get("post_urn"),
+        "message": "Video posted to LinkedIn successfully!"
+    }

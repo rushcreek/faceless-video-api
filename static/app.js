@@ -467,12 +467,24 @@ function updateTaskDisplay(task) {
     
     // Show download link if video is completed
     const videoLink = document.getElementById('video-link');
+    const linkedinSection = document.getElementById('linkedin-post-section');
     if (task.status === 'completed' && task.url) {
         videoLink.innerHTML = `- <a href="${task.url}" target="_blank" rel="noopener noreferrer" download style="color: #4CAF50; font-weight: bold;">Download Video</a>`;
+        // Show LinkedIn section when video is ready
+        if (linkedinSection) {
+            linkedinSection.style.display = 'block';
+            // Pre-populate with story title if available
+            const linkedinContent = document.getElementById('linkedin-post-content');
+            if (linkedinContent && !linkedinContent.value) {
+                linkedinContent.value = task.story_title ? `Check out my new video: ${task.story_title}` : 'Check out my new video!';
+            }
+        }
     } else if (task.status === 'failed') {
         videoLink.innerHTML = `- <span style="color: #f44336;">Failed</span>`;
+        if (linkedinSection) linkedinSection.style.display = 'none';
     } else {
         videoLink.innerHTML = '';
+        if (linkedinSection) linkedinSection.style.display = 'none';
     }
 }
 
@@ -610,6 +622,18 @@ function displayFullTaskStatus(task) {
                     Your browser does not support the video tag.
                 </video>
                 <p><a href="${task.url}" target="_blank">Open in new tab</a></p>
+                
+                <!-- LinkedIn Post Section -->
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;">
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label for="linkedin-content-${task.task_id}" style="display: block; margin-bottom: 5px; font-weight: bold;">Post to LinkedIn:</label>
+                        <textarea id="linkedin-content-${task.task_id}" rows="3" placeholder="Write a caption for your LinkedIn post..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">${task.story_title ? `Check out my new video: ${task.story_title}` : 'Check out my new video!'}</textarea>
+                    </div>
+                    <button class="btn btn-linkedin" onclick="postTaskToLinkedIn('${task.task_id}')">
+                        <span class="linkedin-icon">in</span> Post to LinkedIn
+                    </button>
+                    <span id="linkedin-status-${task.task_id}" style="margin-left: 10px; display: none;"></span>
+                </div>
             </div>
         `;
     }
@@ -1514,6 +1538,194 @@ function restoreAllDefaultPrompts() {
 }
 
 // ==================== END SETTINGS MANAGEMENT ====================
+
+// ==================== LINKEDIN INTEGRATION ====================
+
+// Check LinkedIn configuration status
+async function checkLinkedInStatus() {
+    const token = await getAuthToken();
+    if (!token) return { configured: false };
+    
+    try {
+        const response = await fetch(`${API_BASE}/v1/video/linkedin/status`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        if (response.ok) {
+            return await response.json();
+        }
+        return { configured: false };
+    } catch (error) {
+        console.error('Error checking LinkedIn status:', error);
+        return { configured: false };
+    }
+}
+
+// Post video to LinkedIn
+async function postToLinkedIn() {
+    if (!currentTaskId) {
+        alert('No task selected');
+        return;
+    }
+    
+    const token = await getAuthToken();
+    if (!token) return;
+    
+    const btn = document.getElementById('linkedin-post-btn');
+    const statusMsg = document.getElementById('linkedin-status-message');
+    const contentField = document.getElementById('linkedin-post-content');
+    
+    const content = contentField ? contentField.value.trim() : '';
+    
+    // Disable button and show loading state
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="linkedin-icon">in</span> Posting...';
+    }
+    if (statusMsg) {
+        statusMsg.style.display = 'inline';
+        statusMsg.className = '';
+        statusMsg.textContent = '⏳ Uploading video to LinkedIn...';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${currentTaskId}/post-to-linkedin`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ content: content })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            if (statusMsg) {
+                statusMsg.className = 'linkedin-status-success';
+                statusMsg.textContent = '✅ Posted to LinkedIn successfully!';
+            }
+            if (btn) {
+                btn.innerHTML = '<span class="linkedin-icon">in</span> ✓ Posted';
+            }
+        } else {
+            const errorMessage = result.detail || result.message || 'Failed to post to LinkedIn';
+            if (statusMsg) {
+                statusMsg.className = 'linkedin-status-error';
+                statusMsg.textContent = `❌ ${errorMessage}`;
+            }
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="linkedin-icon">in</span> Post to LinkedIn';
+            }
+        }
+    } catch (error) {
+        console.error('LinkedIn post error:', error);
+        if (statusMsg) {
+            statusMsg.className = 'linkedin-status-error';
+            statusMsg.textContent = `❌ Error: ${error.message}`;
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="linkedin-icon">in</span> Post to LinkedIn';
+        }
+    }
+}
+
+// Add LinkedIn button to task status display
+function addLinkedInButtonToTaskCard(task, container) {
+    if (task.status !== 'completed' || !task.url) return;
+    
+    // Check if button already exists
+    if (container.querySelector('.btn-linkedin')) return;
+    
+    const videoSection = container.querySelector('.video-player');
+    if (videoSection) {
+        const linkedinDiv = document.createElement('div');
+        linkedinDiv.style.marginTop = '15px';
+        linkedinDiv.innerHTML = `
+            <div class="form-group" style="margin-bottom: 10px;">
+                <label for="linkedin-content-${task.task_id}" style="display: block; margin-bottom: 5px; font-weight: bold;">LinkedIn Post Content:</label>
+                <textarea id="linkedin-content-${task.task_id}" rows="3" placeholder="Write a caption for your LinkedIn post..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">${task.story_title ? `Check out my new video: ${task.story_title}` : 'Check out my new video!'}</textarea>
+            </div>
+            <button class="btn btn-linkedin" onclick="postTaskToLinkedIn('${task.task_id}')">
+                <span class="linkedin-icon">in</span> Post to LinkedIn
+            </button>
+            <span id="linkedin-status-${task.task_id}" style="margin-left: 10px; display: none;"></span>
+        `;
+        videoSection.appendChild(linkedinDiv);
+    }
+}
+
+// Post a specific task to LinkedIn (used in status tab)
+async function postTaskToLinkedIn(taskId) {
+    const token = await getAuthToken();
+    if (!token) return;
+    
+    const btn = event.target.closest('.btn-linkedin');
+    const statusMsg = document.getElementById(`linkedin-status-${taskId}`);
+    const contentField = document.getElementById(`linkedin-content-${taskId}`);
+    
+    const content = contentField ? contentField.value.trim() : '';
+    
+    // Disable button and show loading state
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="linkedin-icon">in</span> Posting...';
+    }
+    if (statusMsg) {
+        statusMsg.style.display = 'inline';
+        statusMsg.className = '';
+        statusMsg.textContent = '⏳ Uploading video to LinkedIn...';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/v1/video/tasks/${taskId}/post-to-linkedin`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ content: content })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            if (statusMsg) {
+                statusMsg.className = 'linkedin-status-success';
+                statusMsg.textContent = '✅ Posted to LinkedIn successfully!';
+            }
+            if (btn) {
+                btn.innerHTML = '<span class="linkedin-icon">in</span> ✓ Posted';
+            }
+        } else {
+            const errorMessage = result.detail || result.message || 'Failed to post to LinkedIn';
+            if (statusMsg) {
+                statusMsg.className = 'linkedin-status-error';
+                statusMsg.textContent = `❌ ${errorMessage}`;
+            }
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span class="linkedin-icon">in</span> Post to LinkedIn';
+            }
+        }
+    } catch (error) {
+        console.error('LinkedIn post error:', error);
+        if (statusMsg) {
+            statusMsg.className = 'linkedin-status-error';
+            statusMsg.textContent = `❌ Error: ${error.message}`;
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="linkedin-icon">in</span> Post to LinkedIn';
+        }
+    }
+}
+
+// ==================== END LINKEDIN INTEGRATION ====================
 
 // Initialize on page load
 window.addEventListener('DOMContentLoaded', () => {

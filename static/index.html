@@ -283,6 +283,16 @@
                 <h3>Generation Started!</h3>
                 <p>Task ID: <strong id="task-id"></strong></p>
                 <p>Status: <span id="task-status" class="status-badge">queued</span> <span id="video-link"></span></p>
+                <div id="linkedin-post-section" style="display: none; margin-top: 15px;">
+                    <div class="form-group">
+                        <label for="linkedin-post-content">LinkedIn Post Content:</label>
+                        <textarea id="linkedin-post-content" rows="3" placeholder="Write a caption for your LinkedIn post..." style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;"></textarea>
+                    </div>
+                    <button class="btn btn-linkedin" onclick="postToLinkedIn()" id="linkedin-post-btn">
+                        <span class="linkedin-icon">in</span> Post to LinkedIn
+                    </button>
+                    <span id="linkedin-status-message" style="margin-left: 10px; display: none;"></span>
+                </div>
                 <button class="btn btn-secondary" onclick="checkTaskStatus()">Check Status</button>
             </div>
         </div>

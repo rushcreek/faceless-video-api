@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     R2_ACCESS_KEY_ID: str | None = None
     R2_SECRET_ACCESS_KEY: str | None = None
 
+    # LinkedIn API Configuration
+    LINKEDIN_ACCESS_TOKEN: str | None = None
+    LINKEDIN_MEMBER_URN: str | None = None
+
     @field_validator('STORY_DIR', mode='before')
     def set_story_dir(cls, v, info):
         return v or os.path.join(os.path.dirname(info.data.get('BASE_DIR', '')), "data")
