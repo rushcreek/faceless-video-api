@@ -198,7 +198,7 @@
     "keywords": [
       "PocketRAG"
     ],
-    "prompt_template": "A business user talking into a modern iPhone (black or white), with the iPhone prominently displayed and clearly visible. If the phone screen is visible, the iPhone screen shows the {{PRODUCT_NAME}} mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable.",
+    "prompt_template": "A business user talking into a modern iPhone (black or white) in speaker mode, with the iPhone prominently displayed and clearly visible. If the phone screen is visible, the iPhone screen shows the {{PRODUCT_NAME}} mobile app interface with clean modern UI elements. Professional office setting with soft natural lighting from windows in the background. The phone is the main focus, screen content clearly readable.",
     "reference_images": [
       "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/IMG_4317.PNG",
       "https://pub-2b7fb33554fe43f38a78452469fe75c0.r2.dev/Screenshot%202025-12-31%20at%201.47.33%E2%80%AFPM.png",
